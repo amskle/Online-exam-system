@@ -1,7 +1,7 @@
-target/
+exam-backend/target/
 .mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+!**/exam-backend/src/main/**/target/
+!**/exam-backend/src/test/**/target/
 
 ### STS ###
 .apt_generated

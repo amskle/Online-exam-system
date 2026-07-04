@@ -12,6 +12,9 @@ request.interceptors.request.use((config) => {
 
 request.interceptors.response.use(
     (response) => {
+        if (response.data.code !== 200) {
+            return Promise.reject(response.data)
+        }
         return response.data
     },
     (error) => {

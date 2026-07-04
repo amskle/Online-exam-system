@@ -10,7 +10,18 @@ const routes: RouteRecordRaw[] = [
             requiresAuth: false
 
         }
+    },
+    {
+        path: '/user_home',
+        name: 'user_home',
+        component: () => import('@/views/UserHome.vue'),
+        meta: {
+            title: '用户首页',
+            requiresAuth: false
+
+        }
     }
+
 ]
 
 const router = createRouter({

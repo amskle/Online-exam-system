@@ -24,13 +24,6 @@ export default defineConfig({
   server: {
     port: 8076,
     open: true,
-    host: '0.0.0.0',
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-    }
+    host: '0.0.0.0'
   }
 })

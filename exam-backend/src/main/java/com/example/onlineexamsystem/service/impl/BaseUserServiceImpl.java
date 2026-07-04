@@ -8,17 +8,26 @@ import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
 import com.example.onlineexamsystem.pojo.entity.BaseUser;
 import com.example.onlineexamsystem.pojo.enums.AccountStatusEnum;
+import com.example.onlineexamsystem.pojo.enums.RoleEnum;
+import com.example.onlineexamsystem.pojo.vo.BaseUserVO;
+import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
+import com.example.onlineexamsystem.utils.JwtUtil;
+import io.jsonwebtoken.Claims;
+import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 /*
  * 基础用户服务实现类
  */
 @Service
+@AllArgsConstructor
 public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> implements BaseUserService {
+    private final JwtUtil jwtUtil;
+
 
     /**
      * 登录
@@ -26,14 +35,8 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
      * @param userLoginDTO 登录参数对象
      */
     @Override
-    public void login(UserLoginDTO userLoginDTO) {
-//        if (StringUtils.isEmpty(userLoginDTO.getAccount())) {
-//            throw new ValidationException("账号不能为空");
-//        }
-//        if (StringUtils.isEmpty(userLoginDTO.getPassword())) {
-//            throw new ValidationException("密码不能为空");
-//        }
-
+    public UserLoginResponseVO login(UserLoginDTO userLoginDTO) {
+        // 通过账号查询账户信息
         BaseUser baseUser = this.getOne(
                 new LambdaQueryWrapper<BaseUser>()
                         .eq(BaseUser::getAccount, userLoginDTO.getAccount())
@@ -41,9 +44,18 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
         if (baseUser == null) {
             throw new BusinessException("账号不存在");
         }
+        // 密码判断
         if (!Objects.equals(baseUser.getPassword(), userLoginDTO.getPassword())) {
             throw new BusinessException("密码错误");
         }
+        // 生成token
+        String token = jwtUtil.generateToken(baseUser.getId(), baseUser.getRole());
+        return UserLoginResponseVO
+                .builder()
+                .token(token)
+                .role(baseUser.getRole())
+                .roleName(RoleEnum.getByRole(baseUser.getRole()).getDescription())
+                .build();
     }
 
     /**
@@ -53,15 +65,6 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
      */
     @Override
     public void register(UserRegisterDTO userRegisterDTO) {
-//        if (StringUtils.isEmpty(userRegisterDTO.getAccount())) {
-//            throw new ValidationException("账号不能为空");
-//        }
-//        if (StringUtils.isEmpty(userRegisterDTO.getPassword())) {
-//            throw new ValidationException("密码不能为空");
-//        }
-//        if (StringUtils.isEmpty(userRegisterDTO.getUsername())) {
-//            throw new ValidationException("用户名不能为空");
-//        }
         BaseUser baseUser = this.getOne(
                 new LambdaQueryWrapper<BaseUser>()
                         .eq(BaseUser::getAccount, userRegisterDTO.getAccount())
@@ -74,8 +77,38 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
                 .password(userRegisterDTO.getPassword())
                 .username(userRegisterDTO.getUsername())
                 .loginStatus(AccountStatusEnum.NORMAL.getStatusCode())
-                .createTime(LocalDate.now())
+                .createTime(LocalDateTime.now())
                 .build();
         this.save(baseUserSave);
+    }
+
+    /**
+     * 通过token获取用户信息
+     *
+     * @param token 令牌
+     * @return BaseUserVO
+     */
+    @Override
+    public BaseUserVO tokenAuth(String token) {
+        Claims claims = jwtUtil.getClaims(token);
+        if (claims == null) {
+            throw new BusinessException("token异常");
+        }
+        Integer userIdStr = jwtUtil.getUserId(token);
+        if (userIdStr == null || userIdStr == 0) {
+            throw new BusinessException("token中无用户信息");
+        }
+        int userId = userIdStr;
+        BaseUser baseUser = this.getById(userId);
+        return BaseUserVO.builder()
+                .id(baseUser.getId())
+                .username(baseUser.getUsername())
+                .account(baseUser.getAccount())
+                .avatar(baseUser.getAvatar())
+                .gender(baseUser.getGender())
+                .phone(baseUser.getPhone())
+                .loginStatus(baseUser.getLoginStatus())
+                .role(baseUser.getRole())
+                .build();
     }
 }

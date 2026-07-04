@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { useRouter } from 'vue-router'
+import { setRole, setToken, setRoleName } from '@/utils/localstorage'
 const account = ref('')
 const password = ref('')
 const router = useRouter()
@@ -13,8 +14,11 @@ const gologin = async () => {
       "account": account.value,
       "password": password.value
     })
-    console.log(data);
-    ElMessage.success(`${data.message}`)
+    // console.log(data);
+    setToken(data.data.token || '')
+    setRole(data.data.role || '')
+    setRoleName(data.data.roleName || '')
+
     router.push('/user_home')
 
   } catch (error: any) {

@@ -4,9 +4,12 @@ package com.example.onlineexamsystem.controller;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
+import com.example.onlineexamsystem.pojo.vo.BaseUserVO;
+import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.apache.catalina.User;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -23,12 +26,23 @@ public class BaseUserController {
     /**
      * 用户登录
      *
-     * @return String
+     * @return UserLoginResponseVO
      */
     @PostMapping("/login")
-    public Result<String> login(@Valid @RequestBody UserLoginDTO userLoginDTO) {
-        baseUserService.login(userLoginDTO);
-        return Result.success();
+    public Result<UserLoginResponseVO> login(@Valid @RequestBody UserLoginDTO userLoginDTO) {
+        UserLoginResponseVO userLoginResponseVO = baseUserService.login(userLoginDTO);
+        return Result.success(userLoginResponseVO);
+    }
+
+    /**
+     * token认证
+     *
+     * @return BaseUserVO
+     */
+    @GetMapping("/{token}/{auth}")
+    public Result<BaseUserVO> tokenAuth(@PathVariable String token) {
+        BaseUserVO baseUserVO = baseUserService.tokenAuth(token);
+        return Result.success(baseUserVO);
     }
 
     /**

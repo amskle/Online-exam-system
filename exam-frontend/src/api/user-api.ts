@@ -2,7 +2,8 @@ import type { Result } from "@/types/result"
 import type {
     BaseUserVO,
     UserLoginDTO,
-    UserLoginResponseVO
+    UserLoginResponseVO,
+    UserUpdatePasswordDTO
 } from "@/types/user"
 import request from "@/utils/request"
 // 用户登录
@@ -11,5 +12,9 @@ export const loginApi = (params: UserLoginDTO) => {
 }
 // Token认证
 export const userTokenAuthApi = (token: string) => {
-    return request.get<Result<BaseUserVO>>(`/user/${token}/auth`, { token })
+    return request.get<Result<BaseUserVO>>(`/user/${token}/auth`)
+}
+// 用户修改密码
+export const updatePasswordApi = (id: number, params: UserUpdatePasswordDTO) => {
+    return request.put<Result<void>>(`/user/${id}/updatePassword`, params)
 }

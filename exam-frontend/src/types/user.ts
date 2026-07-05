@@ -15,6 +15,12 @@ export interface UserLoginResponseVO {
     roleName?: string
 }
 /**
+ * 修改密码参数类型
+ */
+export interface UserUpdatePasswordDTO {
+    password?: string
+}
+/**
  * 基础用户信息
  */
 export interface BaseUserVO {

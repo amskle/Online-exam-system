@@ -32,3 +32,25 @@ export const setToken = (token: string) => {
 export const getToken = () => {
     return localStorage.getItem(TOKEN_KEY)
 };
+
+// 清除角色
+export const clearRole = () => {
+    localStorage.removeItem(ROLE_KEY)
+};
+
+// 清除角色名称
+export const clearRoleName = () => {
+    localStorage.removeItem(ROLE_NAME_KEY)
+};
+
+// 清除 Token
+export const clearToken = () => {
+    localStorage.removeItem(TOKEN_KEY)
+};
+
+// 清除所有登录信息（组合方法，最常用）
+export const clearAllAuth = () => {
+    localStorage.removeItem(ROLE_KEY)
+    localStorage.removeItem(ROLE_NAME_KEY)
+    localStorage.removeItem(TOKEN_KEY)
+};

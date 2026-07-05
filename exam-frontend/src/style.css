@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #F5F6FA;
+  --surface: #FFFFFF;
+  --surface-glass: rgba(255,255,255,0.70);
+  --primary: #6C5CE7;
+  --primary-light: #A29BFE;
+  --primary-dark: #5A4BD1;
+  --accent: #00CEC9;
+  --text: #2D3436;
+  --text-secondary: #636E72;
+  --text-muted: #B2BEC3;
+  --border: #E8E8F0;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow: 0 4px 20px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+  --shadow-glow: 0 4px 24px rgba(108,92,231,0.20);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-lg: 24px;
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========== Buttons ========== */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none;
+  border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: var(--transition); text-decoration: none;
+}
+.btn-primary { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(108,92,231,0.25); }
+.btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+.btn-secondary { background: var(--bg); color: var(--text); }
+.btn-secondary:hover { background: #E8E8F0; }
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: rgba(108,92,231,0.06); color: var(--primary); }
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+.btn-icon { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+
+/* ========== Tags ========== */
+.tag { display: inline-flex; align-items: center; padding: 2px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.tag-purple { background: rgba(108,92,231,0.10); color: var(--primary); }
+.tag-teal { background: rgba(0,206,201,0.10); color: var(--accent); }
+.tag-red { background: rgba(255,107,107,0.10); color: #FF6B6B; }
+.tag-orange { background: rgba(253,203,110,0.20); color: #D4A017; }
+.tag-green { background: rgba(0,206,201,0.10); color: #00B894; }
+
+/* ========== Cards ========== */
+.card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 24px; }
+
+/* ========== Utilities ========== */
+.w-full { width: 100%; }
+.text-muted { color: var(--text-muted); }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
+.mb-16 { margin-bottom: 16px; }
+.mb-24 { margin-bottom: 24px; }

@@ -4,12 +4,12 @@ package com.example.onlineexamsystem.controller;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
+import com.example.onlineexamsystem.pojo.dto.UserUpdatePasswordDTO;
 import com.example.onlineexamsystem.pojo.vo.BaseUserVO;
 import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.apache.catalina.User;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -54,5 +54,18 @@ public class BaseUserController {
     public String register(@Valid @RequestBody UserRegisterDTO userRegisterDTO) {
         baseUserService.register(userRegisterDTO);
         return "register success";
+    }
+
+    /**
+     * 修改密码
+     *
+     * @return Result<Void>
+     */
+    @PutMapping("/{id}/updatePassword")
+    private Result<Void> updatePassword(
+            @PathVariable Integer id,
+            @Valid @RequestBody UserUpdatePasswordDTO userUpdatePasswordDTO) {
+        baseUserService.updatePassword(id, userUpdatePasswordDTO);
+        return Result.success();
     }
 }

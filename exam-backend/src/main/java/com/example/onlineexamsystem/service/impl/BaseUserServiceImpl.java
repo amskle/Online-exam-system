@@ -6,6 +6,7 @@ import com.example.onlineexamsystem.exception.BusinessException;
 import com.example.onlineexamsystem.mapper.BaseUserMapper;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
+import com.example.onlineexamsystem.pojo.dto.UserUpdatePasswordDTO;
 import com.example.onlineexamsystem.pojo.entity.BaseUser;
 import com.example.onlineexamsystem.pojo.enums.AccountStatusEnum;
 import com.example.onlineexamsystem.pojo.enums.RoleEnum;
@@ -110,5 +111,27 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
                 .loginStatus(baseUser.getLoginStatus())
                 .role(baseUser.getRole())
                 .build();
+    }
+
+    /**
+     * 修改密码
+     * TODO 权限认证
+     *
+     * @param id                 用户id
+     * @param userUpdatePasswordDTO 修改密码参数对象
+     */
+    @Override
+    public void updatePassword(Integer id, UserUpdatePasswordDTO userUpdatePasswordDTO) {
+        if (Objects.nonNull(id)) {
+            BaseUser baseUser = this.getById(id);
+            if (Objects.isNull(baseUser)) {
+                throw new BusinessException("用户信息查询异常");
+            }
+            BaseUser buildUserEntity = BaseUser.builder()
+                    .id(id)
+                    .password(userUpdatePasswordDTO.getPassword())
+                    .build();
+            this.updateById(buildUserEntity);
+        }
     }
 }

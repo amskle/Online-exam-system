@@ -7,25 +7,25 @@
 </template>
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import request from '@/utils/request'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getToken } from '@/utils/localstorage'
-import router from '@/router'
+import { getToken } from '@/utils/localStorage'
+import { userTokenAuthApi } from '@/api/user-api'
+const router = useRouter()
 const account = ref('')
 const username = ref('')
 const tokenAuth = async (token: string) => {
   try {
-    const data = await request.get(`/user/${token}/auth`);
-    console.log(JSON.stringify(data));
-    account.value = data.data.account || ''
-    username.value = data.data.username || ''
+    const response = await userTokenAuthApi(token);
+    account.value = response?.data?.account ?? ''
+    username.value = response?.data?.username ?? ''
   } catch (error: any) {
     router.push('/')
     ElMessage.error(`身份验证异常`)
     return
   }
 }
-onMounted(async() => {
+onMounted(async () => {
   const token = getToken();
   if (!token) {
     router.push('/')

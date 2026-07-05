@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>权限管理系统</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #F5F6FA;
+      --surface: #FFFFFF;
+      --surface-glass: rgba(255,255,255,0.70);
+      --primary: #6C5CE7;
+      --primary-light: #A29BFE;
+      --primary-dark: #5A4BD1;
+      --accent: #00CEC9;
+      --text: #2D3436;
+      --text-secondary: #636E72;
+      --text-muted: #B2BEC3;
+      --border: #E8E8F0;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+      --shadow: 0 4px 20px rgba(0,0,0,0.06);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+      --shadow-glow: 0 4px 24px rgba(108,92,231,0.20);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --radius-lg: 24px;
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ========== VIEWS ========== */
+    .view { display: none; animation: fadeIn 0.35s ease; }
+    .view.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ========== LOGIN ========== */
+    .login-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #F5F6FA 0%, #E8E8F0 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .login-screen::before {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(108,92,231,0.08) 0%, transparent 70%);
+      top: -200px; right: -200px;
+      border-radius: 50%;
+    }
+    .login-screen::after {
+      content: '';
+      position: absolute;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(0,206,201,0.06) 0%, transparent 70%);
+      bottom: -100px; left: -100px;
+      border-radius: 50%;
+    }
+    .login-card {
+      background: var(--surface-glass);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255,255,255,0.6);
+      border-radius: var(--radius-lg);
+      padding: 48px 40px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.06);
+      position: relative;
+      z-index: 1;
+    }
+    .login-card .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .login-card .logo .logo-mark { width: 44px; height: 44px; background: linear-gradient(135deg, var(--primary), var(--primary-light)); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; }
+    .login-card .logo h1 { font-size: 22px; font-weight: 700; }
+    .login-card .logo p { font-size: 13px; color: var(--text-muted); }
+    .login-card .welcome-text { margin-bottom: 24px; }
+    .login-card .welcome-text h2 { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .login-card .welcome-text p { color: var(--text-secondary); font-size: 14px; }
+    .input-group { margin-bottom: 16px; }
+    .input-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+    .input-field {
+      width: 100%; padding: 12px 16px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+      font-family: inherit; font-size: 14px; background: var(--surface); color: var(--text);
+      transition: var(--transition); outline: none;
+    }
+    .input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(108,92,231,0.10); }
+    .input-field::placeholder { color: var(--text-muted); }
+
+    /* 身份识别指示器 */
+    .role-indicator {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; background: var(--bg); border-radius: var(--radius-sm);
+      margin-bottom: 20px; font-size: 14px; min-height: 48px;
+      transition: var(--transition);
+    }
+    .role-indicator.idle { color: var(--text-muted); }
+    .role-indicator.detected { background: rgba(108,92,231,0.06); }
+    .role-indicator .detect-role {
+      margin-left: auto; padding: 2px 14px; border-radius: 20px;
+      font-size: 13px; font-weight: 600;
+    }
+    .role-indicator.detected .detect-role { background: rgba(108,92,231,0.12); color: var(--primary); }
+    .form-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+    .form-footer a { font-size: 13px; color: var(--primary); text-decoration: none; }
+    .form-footer a:hover { text-decoration: underline; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none;
+      border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: var(--transition); text-decoration: none;
+    }
+    .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(108,92,231,0.25); }
+    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+    .btn-secondary { background: var(--bg); color: var(--text); }
+    .btn-secondary:hover { background: #E8E8F0; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); }
+    .btn-ghost:hover { background: rgba(108,92,231,0.06); color: var(--primary); }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-icon { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+    .w-full { width: 100%; }
+    .text-muted { color: var(--text-muted); }
+
+    /* ========== DASHBOARD LAYOUT ========== */
+    .app-layout {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* 顶栏 */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
+    .topbar-left .greeting h2 { font-size: 22px; font-weight: 700; }
+    .topbar-left .greeting p { font-size: 14px; color: var(--text-muted); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; color: #fff; flex-shrink: 0; }
+    .tag { display: inline-flex; align-items: center; padding: 2px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+    .tag-purple { background: rgba(108,92,231,0.10); color: var(--primary); }
+    .tag-teal { background: rgba(0,206,201,0.10); color: var(--accent); }
+    .tag-red { background: rgba(255,107,107,0.10); color: #FF6B6B; }
+    .tag-orange { background: rgba(253,203,110,0.20); color: #D4A017; }
+    .tag-green { background: rgba(0,206,201,0.10); color: #00B894; }
+
+    /* 导航菜单 */
+    .nav-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 4px;
+      box-shadow: var(--shadow-sm);
+      overflow-x: auto;
+    }
+    .nav-item {
+      padding: 10px 20px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-item:hover { background: rgba(108,92,231,0.06); color: var(--primary); }
+    .nav-item.active { background: var(--primary); color: #fff; box-shadow: var(--shadow-glow); }
+    .nav-item .count {
+      font-size: 11px;
+      background: rgba(255,255,255,0.2);
+      padding: 0 8px;
+      border-radius: 10px;
+    }
+    .nav-item.active .count { background: rgba(255,255,255,0.25); }
+    .nav-item.logout { margin-left: auto; color: var(--text-muted); }
+    .nav-item.logout:hover { color: #FF6B6B; background: rgba(255,107,107,0.06); }
+
+    /* 内容面板 */
+    .panel { display: none; animation: fadeIn 0.3s ease; }
+    .panel.active { display: block; }
+
+    .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 24px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-item { background: var(--surface); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); transition: var(--transition); }
+    .stat-item:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
+    .stat-item .stat-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 12px; }
+    .stat-item .stat-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+    .stat-item .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .exam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .exam-card { background: var(--surface); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-sm); cursor: pointer; transition: var(--transition); border: 1.5px solid transparent; }
+    .exam-card:hover { box-shadow: var(--shadow); transform: translateY(-3px); border-color: rgba(108,92,231,0.15); }
+    .exam-card .exam-type { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .exam-card h3 { font-size: 17px; margin-bottom: 12px; }
+    .exam-card .meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+    .exam-card .card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    td { font-size: 14px; }
+    tr:last-child td { border-bottom: none; }
+
+    .content-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .monitor-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+
+    .question-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .question-item:last-child { border-bottom: none; }
+    .question-item .q-info { flex: 1; }
+    .question-item .q-info .q-text { font-weight: 500; margin-bottom: 4px; }
+    .question-item .q-info .q-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; }
+
+    .paper-tree .section { padding: 12px 16px; border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); display: flex; justify-content: space-between; align-items: center; }
+    .paper-tree .section:hover { background: rgba(108,92,231,0.04); }
+    .paper-tree .section .section-title { font-weight: 500; display: flex; align-items: center; gap: 8px; }
+
+    .log-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .log-item:last-child { border-bottom: none; }
+    .log-item .log-time { color: var(--text-muted); white-space: nowrap; min-width: 140px; }
+    .log-item .log-action { color: var(--text-secondary); }
+    .log-item .log-action strong { color: var(--text); font-weight: 500; }
+
+    .settings-group { margin-bottom: 24px; }
+    .settings-group h4 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-row .setting-label { font-size: 14px; }
+    .setting-row .setting-desc { font-size: 12px; color: var(--text-muted); }
+    .toggle { width: 44px; height: 24px; border-radius: 12px; background: var(--border); cursor: pointer; position: relative; transition: var(--transition); flex-shrink: 0; }
+    .toggle.on { background: var(--primary); }
+    .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: var(--transition); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .toggle.on::after { left: 22px; }
+    .progress { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .gap-8 { gap: 8px; }
+    .gap-12 { gap: 12px; }
+    .gap-16 { gap: 16px; }
+    .mb-16 { margin-bottom: 16px; }
+    .mb-24 { margin-bottom: 24px; }
+
+    @media (max-width: 768px) {
+      .app-layout { padding: 16px; }
+      .content-layout, .monitor-grid { grid-template-columns: 1fr; }
+      .exam-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .login-card { padding: 32px 24px; }
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .nav-bar { flex-wrap: wrap; }
+      .nav-item { padding: 8px 14px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== VIEW: LOGIN ===== -->
+<div class="view active" id="view-login">
+  <div class="login-screen">
+    <div class="login-card">
+      <div class="logo">
+        <div class="logo-mark">⚡</div>
+        <div>
+          <h1>权限管理系统</h1>
+          <p>Role-Based Access Control</p>
+        </div>
+      </div>
+      <div class="welcome-text">
+        <h2>欢迎回来</h2>
+        <p>输入账号，系统自动识别身份</p>
+      </div>
+      <div class="input-group">
+        <label>账号</label>
+        <input class="input-field" type="text" id="loginAccount" placeholder="请输入用户名" value="zhangsan" oninput="detectRole(this.value)">
+      </div>
+      <div class="input-group">
+        <label>密码</label>
+        <input class="input-field" type="password" placeholder="请输入密码" value="••••••••">
+      </div>
+      <!-- 身份识别 -->
+      <div class="role-indicator idle" id="roleIndicator">
+        <span>👤</span>
+        <span>输入账号后自动识别身份</span>
+      </div>
+      <div class="form-footer">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
+          <input type="checkbox" checked style="accent-color:var(--primary);"> 记住我
+        </label>
+        <a href="#">忘记密码？</a>
+      </div>
+      <button class="btn btn-primary w-full" style="margin-top:24px;justify-content:center;padding:14px;" onclick="doLogin()">登 录</button>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-muted);">
+        试试输入: <strong>zhangsan</strong> / <strong>lilaoshi</strong> / <strong>admin</strong>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VIEW: DASHBOARD (共用框架) ===== -->
+<div class="view" id="view-dashboard">
+  <div class="app-layout">
+    <!-- 顶栏 -->
+    <div class="topbar" id="dashboardTopbar">
+      <div class="topbar-left">
+        <div class="avatar" id="dashboardAvatar">张</div>
+        <div class="greeting">
+          <h2 id="dashboardGreeting">下午好，张三同学</h2>
+          <p id="dashboardSubtext">📅 2026年7月3日</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="tag" id="dashboardRoleTag">🎓 学生</span>
+        <button class="btn btn-icon btn-ghost">🔔</button>
+        <button class="btn btn-icon btn-ghost" onclick="logout()" title="退出登录">🚪</button>
+      </div>
+    </div>
+
+    <!-- 导航栏（按角色动态生成） -->
+    <div class="nav-bar" id="navBar"></div>
+
+    <!-- 内容区 -->
+    <div id="panelContainer"></div>
+  </div>
+</div>
+
+<script>
+  // ===== 账号映射 =====
+  const ACCOUNTS = {
+    zhangsan:   { name: '张三',   role: 'student', avatar: '张', color: 'linear-gradient(135deg,#6C5CE7,#A29BFE)', tag: '🎓 学生',   tagClass: 'tag-purple' },
+    20240101:   { name: '张三',   role: 'student', avatar: '张', color: 'linear-gradient(135deg,#6C5CE7,#A29BFE)', tag: '🎓 学生',   tagClass: 'tag-purple' },
+    lilaoshi:   { name: '李老师', role: 'teacher', avatar: '李', color: 'linear-gradient(135deg,#00CEC9,#81ECEC)', tag: '👨‍🏫 教师', tagClass: 'tag-teal' },
+    T001:       { name: '李老师', role: 'teacher', avatar: '李', color: 'linear-gradient(135deg,#00CEC9,#81ECEC)', tag: '👨‍🏫 教师', tagClass: 'tag-teal' },
+    wanglaoshi: { name: '王老师', role: 'teacher', avatar: '王', color: 'linear-gradient(135deg,#00CEC9,#81ECEC)', tag: '👨‍🏫 教师', tagClass: 'tag-teal' },
+    admin:      { name: '管理员', role: 'admin',   avatar: '管', color: 'linear-gradient(135deg,#FF6B6B,#FFA07A)', tag: '🔧 管理员', tagClass: 'tag-red' },
+  };
+
+  let currentUser = null;
+  let currentPanel = '';
+
+  // ===== 登录页：自动识别 =====
+  function detectRole(account) {
+    const indicator = document.getElementById('roleIndicator');
+    if (!account || account.trim() === '') {
+      indicator.className = 'role-indicator idle';
+      indicator.innerHTML = '<span>👤</span><span>输入账号后自动识别身份</span>';
+      return;
+    }
+    const info = ACCOUNTS[account.toLowerCase()];
+    if (info) {
+      const colors = { student: ['rgba(108,92,231,0.12)','#6C5CE7'], teacher: ['rgba(0,206,201,0.12)','#00CEC9'], admin: ['rgba(255,107,107,0.12)','#FF6B6B'] };
+      const c = colors[info.role];
+      indicator.className = 'role-indicator detected';
+      indicator.innerHTML = `<span>✓</span><span>识别为 <strong>${info.name}</strong></span><span class="detect-role" style="background:${c[0]};color:${c[1]};">${info.tag}</span>`;
+    } else {
+      indicator.className = 'role-indicator idle';
+      indicator.innerHTML = '<span>👤</span><span>未识别的账号</span>';
+    }
+  }
+
+  // ===== 登录 =====
+  function doLogin() {
+    const account = document.getElementById('loginAccount').value.toLowerCase();
+    const info = ACCOUNTS[account];
+    if (!info) { alert('未识别的账号，试试输入: zhangsan / lilaoshi / admin'); return; }
+    currentUser = info;
+    enterDashboard(info);
+  }
+
+  // ===== 进入工作台 =====
+  function enterDashboard(user) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-dashboard').classList.add('active');
+
+    // 顶栏
+    document.getElementById('dashboardAvatar').style.background = user.color;
+    document.getElementById('dashboardAvatar').textContent = user.avatar;
+    document.getElementById('dashboardGreeting').textContent =
+      user.role === 'student' ? `下午好，${user.name}同学` :
+      user.role === 'teacher' ? `${user.name}，早上好` : `${user.name}，系统运行正常`;
+    const subs = { student: '有 2 场待考考试', teacher: '您有 45 份试卷待批阅', admin: '🟢 所有服务在线 · 今日 47 场考试' };
+    document.getElementById('dashboardSubtext').textContent = '📅 2026年7月3日 · ' + subs[user.role];
+    const tag = document.getElementById('dashboardRoleTag');
+    tag.textContent = user.tag;
+    tag.className = 'tag ' + user.tagClass;
+
+    // 生成导航
+    buildNav(user.role);
+  }
+
+  // ===== 导航配置 =====
+  const NAV_CONFIG = {
+    student: [
+      { id: 'exam-list',    label: '📝 我的考试',   default: true },
+      { id: 'scores',       label: '📊 成绩查询' },
+      { id: 'profile',      label: '👤 个人信息' },
+    ],
+    teacher: [
+      { id: 'question-bank', label: '📚 题库管理',   default: true },
+      { id: 'paper-edit',    label: '📄 试卷组卷' },
+      { id: 'grading',       label: '📋 阅卷批改' },
+      { id: 'stats',         label: '📈 成绩统计' },
+    ],
+    admin: [
+      { id: 'user-manage',  label: '👥 用户管理',   default: true },
+      { id: 'sys-monitor',  label: '📊 系统监控' },
+      { id: 'sys-settings', label: '⚙️ 系统设置' },
+      { id: 'sys-logs',     label: '📋 操作日志' },
+    ],
+  };
+
+  // ===== 构建导航 =====
+  function buildNav(role) {
+    const items = NAV_CONFIG[role];
+    const navBar = document.getElementById('navBar');
+    navBar.innerHTML = items.map((item, i) =>
+      `<button class="nav-item ${i === 0 ? 'active' : ''}" data-panel="${item.id}" onclick="switchPanel('${item.id}', this)">${item.label}</button>`
+    ).join('') + `<button class="nav-item logout" onclick="logout()">🚪 退出</button>`;
+
+    // 渲染默认面板
+    switchPanel(items[0].id, navBar.querySelector('.nav-item'));
+  }
+
+  // ===== 面板渲染 =====
+  function switchPanel(id, btn) {
+    if (!btn) return;
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    btn.classList.add('active');
+    currentPanel = id;
+
+    const container = document.getElementById('panelContainer');
+    container.innerHTML = renderPanel(id);
+  }
+
+  function renderPanel(id) {
+    const panels = {
+      // ---- 学生 ----
+      'exam-list': `
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(108,92,231,0.08);color:#6C5CE7;">📝</div><div class="stat-value">2</div><div class="stat-label">待考考试</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(0,206,201,0.08);color:#00CEC9;">✅</div><div class="stat-value">5</div><div class="stat-label">已完成</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:#D4A017;">⭐</div><div class="stat-value">86</div><div class="stat-label">平均得分</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(255,107,107,0.08);color:#FF6B6B;">🏆</div><div class="stat-value">12</div><div class="stat-label">最佳排名</div></div>
+        </div>
+        <h3 style="margin-bottom:16px;font-weight:600;">📋 我的考试</h3>
+        <div class="exam-grid">
+          <div class="exam-card"><div class="exam-type">📚 专业课</div><h3>数据结构期末考试</h3><div class="meta"><span>📅 2026-07-05 14:00</span><span>⏱ 120 分钟 · 50 题 · 100 分</span></div><div class="card-footer"><span class="tag tag-orange">⏳ 待开始</span><button class="btn btn-primary btn-sm">进入考试 →</button></div></div>
+          <div class="exam-card"><div class="exam-type">🧮 专业基础</div><h3>算法期中考试</h3><div class="meta"><span>📅 2026-07-03 10:00</span><span>⏱ 90 分钟 · 40 题 · 100 分</span></div><div class="card-footer"><span class="tag tag-orange">⏳ 待开始</span><button class="btn btn-primary btn-sm">进入考试 →</button></div></div>
+          <div class="exam-card"><div class="exam-type">🗄️ 专业选修</div><h3>数据库系统测验</h3><div class="meta"><span>📅 2026-06-28 15:00</span><span>⏱ 60 分钟 · 30 题 · 100 分</span></div><div class="card-footer"><span class="tag tag-green">✅ 86 分</span><button class="btn btn-ghost btn-sm">查看解析 →</button></div></div>
+          <div class="exam-card"><div class="exam-type">🌐 专业课</div><h3>计算机网络小测</h3><div class="meta"><span>📅 2026-07-08 09:00</span><span>⏱ 75 分钟 · 35 题 · 100 分</span></div><div class="card-footer"><span class="tag tag-orange">⏳ 待开始</span><button class="btn btn-primary btn-sm">进入考试 →</button></div></div>
+        </div>
+      `,
+      'scores': `
+        <div class="card mb-24 text-center" style="padding:32px;">
+          <h2>📊 数据结构期末考试 · 成绩</h2>
+          <div style="font-size:48px;font-weight:700;color:#00B894;margin:16px 0;">86 分</div>
+          <p class="text-muted">及格线：60 分 &nbsp;|&nbsp; 排名：第 12 / 45 名</p>
+          <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;">
+            <button class="btn btn-primary">🔍 查看解析</button>
+            <button class="btn btn-secondary">📕 错题本</button>
+          </div>
+        </div>
+        <div class="card" style="padding:0;">
+          <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>第1题 单选</span><span style="color:#00B894;">✅ 正确</span></div>
+          <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>第2题 单选</span><span style="color:#FF6B6B;">❌ 错误</span></div>
+          <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>第3题 多选</span><span style="color:#00B894;">✅ 正确</span></div>
+          <div style="padding:16px 24px;display:flex;justify-content:space-between;"><span>第4题 判断</span><span style="color:#00B894;">✅ 正确</span></div>
+        </div>
+      `,
+      'profile': `
+        <div class="card">
+          <h3 style="margin-bottom:20px;">👤 个人信息</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:500px;">
+            <div><label style="font-size:12px;color:var(--text-muted);">姓名</label><p style="font-weight:600;">${currentUser?.name || '张三'}</p></div>
+            <div><label style="font-size:12px;color:var(--text-muted);">角色</label><p style="font-weight:600;">${currentUser?.tag || '🎓 学生'}</p></div>
+            <div><label style="font-size:12px;color:var(--text-muted);">学号</label><p style="font-weight:600;">20240101</p></div>
+            <div><label style="font-size:12px;color:var(--text-muted);">班级</label><p style="font-weight:600;">计算机科学1班</p></div>
+          </div>
+        </div>
+      `,
+
+      // ---- 教师 ----
+      'question-bank': `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-weight:600;">📖 题库管理</h3>
+          <div style="display:flex;gap:8px;"><button class="btn btn-secondary btn-sm">+ 新增</button><button class="btn btn-ghost btn-sm">📥 导入</button></div>
+        </div>
+        <div style="position:relative;margin-bottom:16px;">
+          <input class="input-field" placeholder="搜索题目..." style="padding-left:36px;">
+          <span style="position:absolute;left:12px;top:12px;color:var(--text-muted);">🔍</span>
+        </div>
+        <div class="card" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th style="width:40px;">☐</th><th>题型</th><th>题目</th><th>难度</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>☐</td><td><span class="tag tag-purple">单选</span></td><td>Java中继承用哪个关键字？</td><td><span class="tag tag-teal">中等</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>☐</td><td><span class="tag tag-purple">多选</span></td><td>以下属于集合框架的有？</td><td><span class="tag tag-green">简单</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>☐</td><td><span class="tag tag-purple">判断</span></td><td>final类可以被继承？</td><td><span class="tag tag-green">简单</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>☐</td><td><span class="tag tag-purple">单选</span></td><td>HTTP状态码200表示？</td><td><span class="tag tag-green">简单</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid var(--border);">
+            <span class="text-muted" style="font-size:13px;">共 156 条</span>
+            <div style="display:flex;gap:4px;">
+              <button class="btn btn-ghost btn-sm" style="padding:4px 8px;">‹</button>
+              <button class="btn btn-primary btn-sm" style="padding:4px 8px;">1</button>
+              <button class="btn btn-ghost btn-sm" style="padding:4px 8px;">2</button>
+              <button class="btn btn-ghost btn-sm" style="padding:4px 8px;">3</button>
+              <button class="btn btn-ghost btn-sm" style="padding:4px 8px;">›</button>
+            </div>
+          </div>
+        </div>
+      `,
+      'paper-edit': `
+        <div class="content-layout">
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h3 style="font-weight:600;">📄 试卷结构</h3><button class="btn btn-primary btn-sm">⚡ 自动组卷</button></div>
+            <div class="paper-tree">
+              <div class="section"><span class="section-title">📂 一、单选题</span><span class="text-muted" style="font-size:13px;">10题 · 30分 ✎</span></div>
+              <div class="section"><span class="section-title">📂 二、多选题</span><span class="text-muted" style="font-size:13px;">5题 · 15分 ✎</span></div>
+              <div class="section"><span class="section-title">📂 三、判断题</span><span class="text-muted" style="font-size:13px;">5题 · 10分 ✎</span></div>
+              <div class="section"><span class="section-title">📂 四、简答题</span><span class="text-muted" style="font-size:13px;">3题 · 45分 ✎</span></div>
+            </div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
+            <button class="btn btn-secondary btn-sm">+ 添加大题</button>
+          </div>
+          <div class="card">
+            <p class="text-muted" style="font-size:13px;margin-bottom:12px;">📦 可选题目池</p>
+            <div class="question-item"><div class="q-info"><div class="q-text">Java数据类型</div><div class="q-meta"><span class="tag tag-green">简单</span> OOP</div></div><button class="btn btn-primary btn-sm">加入</button></div>
+            <div class="question-item"><div class="q-info"><div class="q-text">数组定义方式</div><div class="q-meta"><span class="tag tag-green">简单</span> 基础语法</div></div><button class="btn btn-primary btn-sm">加入</button></div>
+            <div class="question-item"><div class="q-info"><div class="q-text">异常处理机制</div><div class="q-meta"><span class="tag tag-teal">中等</span> 异常</div></div><button class="btn btn-primary btn-sm">加入</button></div>
+          </div>
+        </div>
+      `,
+      'grading': `
+        <div class="content-layout">
+          <div class="card">
+            <h3 style="font-weight:600;margin-bottom:16px;">👤 学生列表</h3>
+            <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>张三</span><span class="tag tag-orange">待批</span></div>
+            <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>李四</span><span class="tag tag-green">已批 92分</span></div>
+            <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;"><span>王五</span><span class="tag tag-orange">待批</span></div>
+            <div style="padding:10px 0;display:flex;justify-content:space-between;"><span>赵六</span><span class="tag tag-green">已批 78分</span></div>
+          </div>
+          <div class="card">
+            <div style="margin-bottom:16px;"><span style="font-weight:600;">第3题 简答题（15分）</span></div>
+            <p style="margin-bottom:8px;font-size:14px;"><strong>题目：</strong>简述面向对象三大特性</p>
+            <div style="background:var(--bg);padding:16px;border-radius:var(--radius-sm);margin-bottom:16px;font-size:14px;">
+              <p style="margin-bottom:4px;"><strong>学生答案：</strong></p>
+              <p class="text-muted">封装、继承、多态。封装是将对象的属性和方法包装在类内部...</p>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;">
+              <input class="input-field" value="12" style="width:80px;"> <span class="text-muted">/ 15</span>
+              <input class="input-field" placeholder="批注..." style="flex:1;">
+              <button class="btn btn-primary btn-sm">保存</button>
+            </div>
+          </div>
+        </div>
+      `,
+      'stats': `
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(108,92,231,0.08);color:#6C5CE7;">📊</div><div class="stat-value">72.5</div><div class="stat-label">平均分</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(0,206,201,0.08);color:#00CEC9;">✅</div><div class="stat-value">78%</div><div class="stat-label">及格率</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:#D4A017;">🏆</div><div class="stat-value">98</div><div class="stat-label">最高分</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(255,107,107,0.08);color:#FF6B6B;">📉</div><div class="stat-value">32</div><div class="stat-label">最低分</div></div>
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h4>📋 成绩分布</h4>
+            <div style="display:flex;gap:8px;"><button class="btn btn-sm btn-secondary">📥 Excel</button><button class="btn btn-sm btn-ghost">🖨️ 打印</button></div>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:8px;height:160px;margin-bottom:8px;">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;"><div style="width:100%;height:40px;background:#FF6B6B;border-radius:4px 4px 0 0;"></div><span style="font-size:11px;color:var(--text-muted);">0-59</span><span style="font-size:12px;font-weight:600;">3人</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;"><div style="width:100%;height:80px;background:#D4A017;border-radius:4px 4px 0 0;"></div><span style="font-size:11px;color:var(--text-muted);">60-69</span><span style="font-size:12px;font-weight:600;">5人</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;"><div style="width:100%;height:120px;background:#6C5CE7;border-radius:4px 4px 0 0;"></div><span style="font-size:11px;color:var(--text-muted);">70-79</span><span style="font-size:12px;font-weight:600;">7人</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;"><div style="width:100%;height:100px;background:#00CEC9;border-radius:4px 4px 0 0;"></div><span style="font-size:11px;color:var(--text-muted);">80-89</span><span style="font-size:12px;font-weight:600;">6人</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;"><div style="width:100%;height:60px;background:#00B894;border-radius:4px 4px 0 0;"></div><span style="font-size:11px;color:var(--text-muted);">90-100</span><span style="font-size:12px;font-weight:600;">4人</span></div>
+          </div>
+        </div>
+      `,
+
+      // ---- 管理员 ----
+      'user-manage': `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-weight:600;">👥 用户管理</h3>
+          <button class="btn btn-primary btn-sm">+ 新增用户</button>
+        </div>
+        <div class="card" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>姓名</th><th>账号</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>张三</td><td>20240101</td><td><span class="tag tag-purple">学生</span></td><td><span class="tag tag-green">✅ 启用</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>李老师</td><td>T001</td><td><span class="tag tag-teal">教师</span></td><td><span class="tag tag-green">✅ 启用</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>王五</td><td>20240102</td><td><span class="tag tag-purple">学生</span></td><td><span class="tag tag-red">⛔ 禁用</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+                <tr><td>管理员</td><td>admin</td><td><span class="tag tag-red">管理员</span></td><td><span class="tag tag-green">✅ 启用</span></td><td><button class="btn btn-ghost btn-sm">编辑</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `,
+      'sys-monitor': `
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(0,206,201,0.08);color:#00CEC9;">🟢</div><div class="stat-value">正常</div><div class="stat-label">系统状态</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(108,92,231,0.08);color:#6C5CE7;">👥</div><div class="stat-value">1,283</div><div class="stat-label">在线人数</div></div>
+          <div class="stat-item"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:#D4A017;">📝</div><div class="stat-value">47</div><div class="stat-label">今日考试</div></div>
+        </div>
+        <div class="card mb-16">
+          <h4 style="margin-bottom:12px;">系统资源</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px;"><span>CPU</span><span>23%</span></div><div class="progress"><div class="progress-fill" style="width:23%;background:#00B894;"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px;"><span>内存</span><span>45%</span></div><div class="progress"><div class="progress-fill" style="width:45%;background:#D4A017;"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px;"><span>磁盘</span><span>62%</span></div><div class="progress"><div class="progress-fill" style="width:62%;background:#6C5CE7;"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px;"><span>网络</span><span>正常</span></div><div class="progress"><div class="progress-fill" style="width:100%;background:#00B894;"></div></div></div>
+          </div>
+        </div>
+      `,
+      'sys-settings': `
+        <div class="card">
+          <h3 style="margin-bottom:20px;">⚙️ 系统设置</h3>
+          <div class="settings-group">
+            <h4>🛡️ 考试安全</h4>
+            <div class="setting-row"><div><div class="setting-label">切屏容忍次数</div><div class="setting-desc">超过次数强制交卷</div></div><div style="display:flex;align-items:center;gap:8px;"><input class="input-field" value="3" style="width:60px;padding:6px 8px;text-align:center;"> 次</div></div>
+            <div class="setting-row"><div><div class="setting-label">允许复制粘贴</div><div class="setting-desc">考试期间禁止复制</div></div><div class="toggle"></div></div>
+            <div class="setting-row"><div><div class="setting-label">人脸核验</div><div class="setting-desc">开启后将验证身份</div></div><div class="toggle on"></div></div>
+          </div>
+          <div class="settings-group">
+            <h4>🔐 会话</h4>
+            <div class="setting-row"><div><div class="setting-label">Token 有效期</div></div><div style="display:flex;align-items:center;gap:8px;"><input class="input-field" value="7200" style="width:80px;padding:6px 8px;text-align:center;"> 秒</div></div>
+            <div class="setting-row"><div><div class="setting-label">自动登出时间</div></div><div style="display:flex;align-items:center;gap:8px;"><input class="input-field" value="30" style="width:60px;padding:6px 8px;text-align:center;"> 分钟</div></div>
+          </div>
+          <button class="btn btn-primary">💾 保存配置</button>
+        </div>
+      `,
+      'sys-logs': `
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h3 style="font-weight:600;">📋 实时日志</h3><button class="btn btn-ghost btn-sm">📤 导出</button></div>
+          <div class="log-item"><span class="log-time">14:23:12</span><span class="log-action"><strong>张三</strong> 提交试卷 <span class="text-muted">#EXAM-008</span></span></div>
+          <div class="log-item"><span class="log-time">14:22:45</span><span class="log-action"><strong>李四</strong> 登录成功 <span class="text-muted">IP:192.168.1.5</span></span></div>
+          <div class="log-item"><span class="log-time">14:20:30</span><span class="log-action"><strong>王老师</strong> 发布考试 <span class="text-muted">数据结构期末</span></span></div>
+          <div class="log-item"><span class="log-time">14:18:00</span><span class="log-action"><strong>赵六</strong> 开始考试 <span class="text-muted">算法期中</span></span></div>
+          <div class="log-item"><span class="log-time">14:15:22</span><span class="log-action"><strong>管理员</strong> 备份数据 <span class="text-muted">全量备份成功</span></span></div>
+          <div class="log-item"><span class="log-time">14:10:05</span><span class="log-action"><strong>李老师</strong> 导入题库 <span class="text-muted">50题</span></span></div>
+        </div>
+      `,
+    };
+    return panels[id] || '<div class="card text-muted" style="padding:40px;text-align:center;">功能开发中...</div>';
+  }
+
+  // ===== 退出 =====
+  function logout() {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-login').classList.add('active');
+    document.getElementById('loginAccount').value = '';
+    document.getElementById('loginAccount').focus();
+    const indicator = document.getElementById('roleIndicator');
+    indicator.className = 'role-indicator idle';
+    indicator.innerHTML = '<span>👤</span><span>输入账号后自动识别身份</span>';
+    currentUser = null;
+  }
+
+  // ===== 初始触发识别 =====
+  detectRole('zhangsan');
+
+  // ===== Toggle 开关 =====
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('toggle')) {
+      e.target.classList.toggle('on');
+    }
+  });
+</script>
+</body>
+</html>

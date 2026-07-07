@@ -3,6 +3,28 @@ exam-backend/target/
 !**/exam-backend/src/main/**/target/
 !**/exam-backend/src/test/**/target/
 
+### Runtime uploads / local generated files ###
+exam-backend/file/
+tmp/
+*.log
+*.err
+
+### Frontend ###
+exam-frontend/node_modules/
+exam-frontend/dist/
+exam-frontend/vite-dev.log
+exam-frontend/vite-dev.err
+exam-frontend/.agents/
+exam-frontend/auto-imports.d.ts
+exam-frontend/components.d.ts
+
+### Environment files ###
+.env
+.env.local
+.env.*.local
+exam-frontend/.env.local
+exam-frontend/.env.*.local
+
 ### STS ###
 .apt_generated
 .classpath
@@ -30,3 +52,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+.reasonix/
+.agents/

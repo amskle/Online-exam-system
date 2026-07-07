@@ -2,6 +2,7 @@ package com.example.onlineexamsystem.controller;
 
 
 import com.example.onlineexamsystem.pojo.api.Result;
+import com.example.onlineexamsystem.pojo.dto.BaseUserUpdateDTO;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
 import com.example.onlineexamsystem.pojo.dto.UserUpdatePasswordDTO;
@@ -26,7 +27,7 @@ public class BaseUserController {
     /**
      * 用户登录
      *
-     * @return UserLoginResponseVO
+     * @return Result<UserLoginResponseVO>
      */
     @PostMapping("/login")
     public Result<UserLoginResponseVO> login(@Valid @RequestBody UserLoginDTO userLoginDTO) {
@@ -37,9 +38,9 @@ public class BaseUserController {
     /**
      * token认证
      *
-     * @return BaseUserVO
+     * @return Result<BaseUserVO>
      */
-    @GetMapping("/{token}/{auth}")
+    @GetMapping("/{token}/auth")
     public Result<BaseUserVO> tokenAuth(@PathVariable String token) {
         BaseUserVO baseUserVO = baseUserService.tokenAuth(token);
         return Result.success(baseUserVO);
@@ -48,12 +49,12 @@ public class BaseUserController {
     /**
      * 用户注册
      *
-     * @return String
+     * @return Result<String>
      */
     @PostMapping("/register")
-    public String register(@Valid @RequestBody UserRegisterDTO userRegisterDTO) {
+    public Result<String> register(@Valid @RequestBody UserRegisterDTO userRegisterDTO) {
         baseUserService.register(userRegisterDTO);
-        return "register success";
+        return Result.success("register success");
     }
 
     /**
@@ -66,6 +67,28 @@ public class BaseUserController {
             @PathVariable Integer id,
             @Valid @RequestBody UserUpdatePasswordDTO userUpdatePasswordDTO) {
         baseUserService.updatePassword(id, userUpdatePasswordDTO);
+        return Result.success();
+    }
+
+    /**
+     * 修改个人信息
+     *
+     * @return Result<UserLoginResponseVO>
+     */
+    @PutMapping
+    public Result<Void> updateInfo(@Valid @RequestBody BaseUserUpdateDTO baseUserUpdateDTO) {
+        baseUserService.updateInfo(baseUserUpdateDTO);
+        return Result.success();
+    }
+
+    /**
+     * 上传头像
+     *
+     * @return Result<UserLoginResponseVO>
+     */
+    @PutMapping(value = "/uploadAvatar")
+    public Result<Void> uploadAvatar(@Valid @RequestBody BaseUserUpdateDTO baseUserUpdateDTO) {
+        baseUserService.updateAvatar(baseUserUpdateDTO);
         return Result.success();
     }
 }

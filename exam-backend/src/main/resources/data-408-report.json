@@ -1,0 +1,175 @@
+{
+  "2009": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2010": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2011": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 3,
+    "subjective_imported": 3,
+    "subjective_missing": [
+      44,
+      45,
+      46,
+      47
+    ]
+  },
+  "2012": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2013": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2014": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2015": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2016": {
+    "choice_answers": 0,
+    "choice_questions": 0,
+    "choice_imported": 0,
+    "choice_missing": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40
+    ],
+    "subjective_questions": 0,
+    "subjective_imported": 0,
+    "subjective_missing": [
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ]
+  },
+  "2017": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2018": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2019": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2020": {
+    "choice_answers": 40,
+    "choice_questions": 40,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 7,
+    "subjective_imported": 7,
+    "subjective_missing": []
+  },
+  "2021": {
+    "choice_answers": 40,
+    "choice_questions": 30,
+    "choice_imported": 40,
+    "choice_missing": [],
+    "subjective_questions": 6,
+    "subjective_imported": 6,
+    "subjective_missing": [
+      45
+    ]
+  }
+}

@@ -17,6 +17,10 @@ spring:
       max-lifetime: 1800000
       connection-timeout: 30000
       connection-test-query: SELECT 1
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-admin.sql
 
 server:
   port: 8077

@@ -15,6 +15,16 @@ export interface UserLoginResponseVO {
     roleName?: string
 }
 /**
+ * 用户注册参数
+ */
+export interface UserRegisterDTO {
+    account?: string
+    password?: string
+    username?: string
+    role?: number
+}
+
+/**
  * 修改密码参数类型
  */
 export interface UserUpdatePasswordDTO {
@@ -26,6 +36,18 @@ export interface UserUpdatePasswordDTO {
 export interface BaseUserVO {
     id?: number
     account?: string
+    username?: string
+    avatar?: string
+    gender?: number
+    phone?: string
+    loginStatus?: boolean
+    role?: number
+}
+/**
+ * 基础用户信息修改
+ */
+export interface BaseUserUpdateDTO {
+    id?: number
     username?: string
     avatar?: string
     gender?: number

@@ -17,6 +17,7 @@ public class FileUploadConfig implements WebMvcConfigurer {
 
     @Value("${file.upload-dir}")
     private String uploadDir;
+
     @PostConstruct
     public void init() {
         String projectRoot = System.getProperty("user.dir");

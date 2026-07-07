@@ -1,5 +1,6 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
+import { getToken } from './localStorage'
 
 // 创建 axios 实例
 const instance = axios.create({
@@ -8,6 +9,10 @@ const instance = axios.create({
 })
 // 请求拦截器
 instance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+    const token = getToken()
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+    }
     return config
 })
 // 响应拦截器

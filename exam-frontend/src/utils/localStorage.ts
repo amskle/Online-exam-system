@@ -1,6 +1,38 @@
 const ROLE_KEY = 'ROLE'
 const ROLE_NAME_KEY = 'ROLE_NAME'
 const TOKEN_KEY = 'TOKEN'
+const REMEMBER_KEY = 'remember_login'
+
+interface RememberedLogin {
+  account: string
+  password: string
+}
+
+export function saveRememberedLogin(account: string, password: string) {
+  const payload: RememberedLogin = {
+    account,
+    password: btoa(encodeURIComponent(password)) // 简单编码，非加密
+  }
+  localStorage.setItem(REMEMBER_KEY, JSON.stringify(payload))
+}
+
+export function getRememberedLogin(): RememberedLogin | null {
+  const raw = localStorage.getItem(REMEMBER_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return {
+      account: parsed.account,
+      password: decodeURIComponent(atob(parsed.password))
+    }
+  } catch {
+    return null
+  }
+}
+
+export function clearRememberedLogin() {
+  localStorage.removeItem(REMEMBER_KEY)
+}
 
 export enum RoleEnum {
     STUDENT = 1,

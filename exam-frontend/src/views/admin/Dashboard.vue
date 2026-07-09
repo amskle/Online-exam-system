@@ -16,11 +16,34 @@
       <div class="panel-head">
         <div>
           <h2>趋势概览</h2>
-          <p>近 7 天注册、考试和题库增长趋势</p>
+          <p>从首位用户创建日期至今的注册、考试和题库增长趋势</p>
         </div>
-        <el-segmented v-model="trendDays" :options="['7天', '14天', '30天']" />
+        <el-button size="small" @click="refresh">刷新</el-button>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head score-head">
+        <div>
+          <h2>学生成绩统计</h2>
+          <p>按百分制分率统计已产生分数的考试记录</p>
+        </div>
+        <div class="score-actions">
+          <el-radio-group v-model="scoreChartMode" size="small">
+            <el-radio-button label="distribution">分数段</el-radio-button>
+            <el-radio-button label="ranking">学生排行</el-radio-button>
+          </el-radio-group>
+          <el-button size="small" @click="refresh">刷新</el-button>
+        </div>
+      </div>
+      <div class="score-summary">
+        <div v-for="item in scoreSummary" :key="item.label" class="score-metric">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+      </div>
+      <div ref="scoreChartRef" class="score-chart"></div>
     </section>
 
     <section class="dashboard-grid">
@@ -61,16 +84,17 @@ import { DataAnalysis, Files, Notebook, Reading, User, UserFilled } from '@eleme
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts/core'
 import { GridComponent, LegendComponent, TooltipComponent, type GridComponentOption, type LegendComponentOption, type TooltipComponentOption } from 'echarts/components'
-import { LineChart, type LineSeriesOption } from 'echarts/charts'
+import { BarChart, LineChart, type BarSeriesOption, type LineSeriesOption } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
-import { dashboardOverviewApi, dashboardTrendApi } from '@/api/admin-api'
-import type { DashboardOverview, TrendStats } from '@/types/admin'
+import { dashboardOverviewApi, dashboardScoreStatsApi, dashboardTrendApi } from '@/api/admin-api'
+import type { DashboardOverview, StudentScoreStats, TrendStats } from '@/types/admin'
 
-const trendDays = ref('7天')
 const trendChartRef = ref<HTMLDivElement>()
+const scoreChartRef = ref<HTMLDivElement>()
 let trendChart: echarts.ECharts | null = null
-type EChartsOption = echarts.ComposeOption<GridComponentOption | LegendComponentOption | TooltipComponentOption | LineSeriesOption>
-echarts.use([GridComponent, LegendComponent, TooltipComponent, LineChart, CanvasRenderer])
+let scoreChart: echarts.ECharts | null = null
+type EChartsOption = echarts.ComposeOption<GridComponentOption | LegendComponentOption | TooltipComponentOption | LineSeriesOption | BarSeriesOption>
+echarts.use([GridComponent, LegendComponent, TooltipComponent, BarChart, LineChart, CanvasRenderer])
 const overview = ref<DashboardOverview>({
   userCount: 0,
   adminCount: 0,
@@ -93,7 +117,19 @@ const overviewStats = computed(() => [
 ])
 
 const trendData = ref<TrendStats[]>([])
-const currentTrendDays = computed(() => Number.parseInt(trendDays.value, 10))
+const scoreChartMode = ref<'distribution' | 'ranking'>('distribution')
+const scoreStats = ref<StudentScoreStats>({
+  recordCount: 0,
+  averageScoreRate: 0,
+  highestScoreRate: 0,
+  lowestScoreRate: 0,
+  passCount: 0,
+  passRate: 0,
+  scoreDistribution: [],
+  topStudentScores: []
+})
+
+const formatPercent = (value: number) => `${value.toFixed(1)}%`
 
 const questionTypeStats = computed(() => {
   const total = overview.value.questionTypeStats.reduce((sum, item) => sum + item.value, 0)
@@ -112,6 +148,14 @@ const subjectStats = computed(() => {
   }))
 })
 
+const scoreSummary = computed(() => [
+  { label: '考试记录', value: scoreStats.value.recordCount },
+  { label: '平均分率', value: formatPercent(scoreStats.value.averageScoreRate) },
+  { label: '通过率', value: formatPercent(scoreStats.value.passRate) },
+  { label: '最高分率', value: `${scoreStats.value.highestScoreRate}%` },
+  { label: '最低分率', value: `${scoreStats.value.lowestScoreRate}%` }
+])
+
 const loadOverview = async () => {
   const response = await dashboardOverviewApi()
   if (response.data) {
@@ -121,10 +165,19 @@ const loadOverview = async () => {
 }
 
 const loadTrend = async () => {
-  const response = await dashboardTrendApi(currentTrendDays.value)
+  const response = await dashboardTrendApi()
   trendData.value = response.data ?? []
   await nextTick()
   renderTrendChart()
+}
+
+const loadScoreStats = async () => {
+  const response = await dashboardScoreStatsApi()
+  if (response.data) {
+    scoreStats.value = response.data
+  }
+  await nextTick()
+  renderScoreChart()
 }
 
 const renderTrendChart = () => {
@@ -175,6 +228,63 @@ const renderTrendChart = () => {
   trendChart.setOption(option)
 }
 
+const renderScoreChart = () => {
+  if (!scoreChartRef.value) return
+  scoreChart = scoreChart ?? echarts.init(scoreChartRef.value)
+  const source = scoreChartMode.value === 'distribution'
+    ? scoreStats.value.scoreDistribution
+    : scoreStats.value.topStudentScores
+  const names = source.map((item) => item.name)
+  const values = source.map((item) => item.value)
+  const isRanking = scoreChartMode.value === 'ranking'
+  const option: EChartsOption = {
+    color: [isRanking ? '#0f766e' : '#2563eb'],
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' }
+    },
+    grid: {
+      left: 34,
+      right: 24,
+      top: 28,
+      bottom: names.length > 6 ? 58 : 36,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: {
+        color: '#64748b',
+        rotate: names.length > 6 ? 35 : 0
+      },
+      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      max: isRanking ? 100 : undefined,
+      axisLabel: {
+        color: '#64748b',
+        formatter: isRanking ? '{value}%' : '{value}'
+      },
+      splitLine: { lineStyle: { color: '#eef2f7' } }
+    },
+    series: [
+      {
+        name: isRanking ? '平均分率' : '人数',
+        type: 'bar',
+        data: values,
+        barMaxWidth: 42,
+        itemStyle: {
+          borderRadius: [6, 6, 0, 0]
+        }
+      }
+    ]
+  }
+  scoreChart.setOption(option, true)
+}
+
 const buildLineSeries = (name: string, data: number[], color: string): LineSeriesOption => ({
   name,
   type: 'line',
@@ -193,25 +303,32 @@ const buildLineSeries = (name: string, data: number[], color: string): LineSerie
 const refresh = async () => {
   await loadOverview()
   await loadTrend()
+  await loadScoreStats()
   ElMessage.success('仪表盘数据已刷新')
 }
 
 const handleResize = () => {
   trendChart?.resize()
+  scoreChart?.resize()
 }
 
-watch(trendDays, loadTrend)
+watch(scoreChartMode, () => {
+  renderScoreChart()
+})
 
 onMounted(async () => {
   await loadOverview()
   await loadTrend()
+  await loadScoreStats()
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   trendChart?.dispose()
+  scoreChart?.dispose()
   trendChart = null
+  scoreChart = null
 })
 </script>
 
@@ -297,6 +414,52 @@ onUnmounted(() => {
   padding-top: 12px;
 }
 
+.score-head {
+  align-items: flex-start;
+}
+
+.score-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.score-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.score-metric {
+  min-height: 72px;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.score-metric span {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.score-metric strong {
+  color: #111827;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.score-chart {
+  height: 300px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 12px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -358,11 +521,28 @@ onUnmounted(() => {
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .score-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
   .stats-grid,
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .score-head {
+    display: grid;
+    gap: 12px;
+  }
+
+  .score-actions {
+    justify-content: flex-start;
+  }
+
+  .score-summary {
     grid-template-columns: 1fr;
   }
 }

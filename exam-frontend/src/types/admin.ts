@@ -125,6 +125,17 @@ export interface DashboardOverview {
   trendStats?: TrendStats[]
 }
 
+export interface StudentScoreStats {
+  recordCount: number
+  averageScoreRate: number
+  highestScoreRate: number
+  lowestScoreRate: number
+  passCount: number
+  passRate: number
+  scoreDistribution: NameValue[]
+  topStudentScores: NameValue[]
+}
+
 export interface TrendStats {
   date: string
   users: number

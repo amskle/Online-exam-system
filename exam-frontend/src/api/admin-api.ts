@@ -1,5 +1,5 @@
 import type { Result } from '@/types/result'
-import type { AdminUser, AutoGeneratePaper, DashboardOverview, ExamPaper, ExamRecord, PageQuery, PageVO, Question, Subject, TrendStats } from '@/types/admin'
+import type { AdminUser, AutoGeneratePaper, DashboardOverview, ExamPaper, ExamRecord, PageQuery, PageVO, Question, StudentScoreStats, Subject, TrendStats } from '@/types/admin'
 import request from '@/utils/request'
 
 export const adminUserListApi = (params: PageQuery & Partial<AdminUser>) =>
@@ -77,5 +77,8 @@ export const examRecordDeleteApi = (id: number) =>
 export const dashboardOverviewApi = () =>
   request.get<Result<DashboardOverview>>('/admin/dashboard/overview')
 
-export const dashboardTrendApi = (days: number) =>
-  request.get<Result<TrendStats[]>>('/admin/dashboard/trends', { days })
+export const dashboardTrendApi = () =>
+  request.get<Result<TrendStats[]>>('/admin/dashboard/trends')
+
+export const dashboardScoreStatsApi = () =>
+  request.get<Result<StudentScoreStats>>('/admin/dashboard/score-stats')

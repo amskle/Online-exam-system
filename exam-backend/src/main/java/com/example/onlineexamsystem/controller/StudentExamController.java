@@ -3,7 +3,7 @@ package com.example.onlineexamsystem.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.onlineexamsystem.annotation.Auth;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.ExamPaperQueryDTO;
 import com.example.onlineexamsystem.pojo.dto.ExamRecordQueryDTO;
@@ -24,6 +24,12 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+/**
+ * 学生考试控制器
+ */
+/**
+ * 学生考试控制器
+ */
 @RestController
 @RequestMapping("/student")
 @RequiredArgsConstructor
@@ -37,6 +43,16 @@ public class StudentExamController {
     private final WrongQuestionService wrongQuestionService;
     private final ExamPaperQuestionService examPaperQuestionService;
 
+    /**
+     * 分页查询可参加的试卷列表
+     *
+     * @return Result<PageVO<ExamPaper>>
+     */
+    /**
+     * 查询可用试卷列表
+     *
+     * @return Result<PageVO<ExamPaper>>
+     */
     @GetMapping("/examPapers/listPage")
     public Result<PageVO<ExamPaper>> listAvailablePapers(ExamPaperQueryDTO query) {
         Page<ExamPaper> page = examPaperService.page(
@@ -49,11 +65,31 @@ public class StudentExamController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询试卷详情（含题目列表）
+     *
+     * @return Result<ExamPaperDetailVO>
+     */
+    /**
+     * 获取试卷详情
+     *
+     * @return Result<ExamPaperDetailVO>
+     */
     @GetMapping("/examPapers/{id}/detail")
     public Result<ExamPaperDetailVO> paperDetail(@PathVariable Integer id) {
         return Result.success(examPaperService.detail(id));
     }
 
+    /**
+     * 开始考试（创建或续考考试记录）
+     *
+     * @return Result<ExamRecord>
+     */
+    /**
+     * 开始考试（创建考试记录）
+     *
+     * @return Result<ExamRecord>
+     */
     @PostMapping("/examRecords/start")
     public Result<ExamRecord> start(@RequestParam Integer paperId) {
         Integer userId = UserContext.getUserId();
@@ -107,12 +143,30 @@ public class StudentExamController {
         return Result.success(record);
     }
 
+    /**
+     * 提交考试（自动判分客观题并记录错题）
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 提交考试答案
+     *
+     * @return Result<Void>
+     */
     @PostMapping("/examRecords/submit")
     public Result<Void> submit(@RequestBody StudentExamSubmitDTO dto) {
         Integer userId = UserContext.getUserId();
         ExamRecord record = examRecordService.getById(dto.getRecordId());
         if (record == null || !Objects.equals(record.getUserId(), userId)) {
             throw new BusinessException("考试记录不存在");
+        }
+        // 后端时间校验：防止前端绕过倒计时
+        ExamPaper paper = examPaperService.getById(record.getPaperId());
+        if (paper != null && record.getStartTime() != null && paper.getDuration() != null) {
+            LocalDateTime deadline = record.getStartTime().plusMinutes(paper.getDuration());
+            if (LocalDateTime.now().isAfter(deadline)) {
+                throw new BusinessException("考试时间已结束，无法提交");
+            }
         }
         examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, record.getId()));
         int totalScore = 0;
@@ -151,6 +205,42 @@ public class StudentExamController {
         return Result.success();
     }
 
+    /**
+     * 上报切屏/离开考试页面行为
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 上报切屏警告
+     *
+     * @return Result<Void>
+     */
+    @PostMapping("/examRecords/warn")
+    public Result<Void> warn(@RequestParam Integer recordId) {
+        Integer userId = UserContext.getUserId();
+        ExamRecord record = examRecordService.getById(recordId);
+        if (record == null || !Objects.equals(record.getUserId(), userId)) {
+            throw new BusinessException("考试记录不存在");
+        }
+        if (!Objects.equals(record.getStatus(), 0)) {
+            throw new BusinessException("考试已结束");
+        }
+        int count = record.getWarningCount() == null ? 0 : record.getWarningCount();
+        record.setWarningCount(count + 1);
+        examRecordService.updateById(record);
+        return Result.success();
+    }
+
+    /**
+     * 分页查询我的考试记录
+     *
+     * @return Result<PageVO<ExamRecord>>
+     */
+    /**
+     * 查询我的考试记录
+     *
+     * @return Result<PageVO<ExamRecord>>
+     */
     @GetMapping("/examRecords/listPage")
     public Result<PageVO<ExamRecord>> myRecords(ExamRecordQueryDTO query) {
         Integer userId = UserContext.getUserId();
@@ -165,6 +255,16 @@ public class StudentExamController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询我的考试记录详情（含答题明细）
+     *
+     * @return Result<ExamRecordDetailVO>
+     */
+    /**
+     * 获取考试记录详情
+     *
+     * @return Result<ExamRecordDetailVO>
+     */
     @GetMapping("/examRecords/{id}/detail")
     public Result<ExamRecordDetailVO> myRecordDetail(@PathVariable Integer id) {
         ExamRecord record = examRecordService.getById(id);
@@ -174,6 +274,16 @@ public class StudentExamController {
         return Result.success(examRecordService.detail(id));
     }
 
+    /**
+     * 分页查询错题本
+     *
+     * @return Result<PageVO<WrongQuestion>>
+     */
+    /**
+     * 分页查询我的错题
+     *
+     * @return Result<PageVO<WrongQuestion>>
+     */
     @GetMapping("/wrongQuestions/listPage")
     public Result<PageVO<WrongQuestion>> wrongQuestions(ExamPaperQueryDTO query, Boolean mastered) {
         Integer userId = UserContext.getUserId();
@@ -188,6 +298,16 @@ public class StudentExamController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 修改错题掌握状态
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 更新错题掌握状态
+     *
+     * @return Result<Void>
+     */
     @PutMapping("/wrongQuestions/{id}/mastered")
     public Result<Void> updateMastered(@PathVariable Integer id, @RequestParam Boolean mastered) {
         WrongQuestion wrongQuestion = wrongQuestionService.getById(id);
@@ -199,6 +319,16 @@ public class StudentExamController {
         return Result.success();
     }
 
+    /**
+     * 删除错题
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 删除错题记录
+     *
+     * @return Result<Void>
+     */
     @DeleteMapping("/wrongQuestions/{id}")
     public Result<Void> deleteWrongQuestion(@PathVariable Integer id) {
         WrongQuestion wrongQuestion = wrongQuestionService.getById(id);
@@ -209,6 +339,20 @@ public class StudentExamController {
         return Result.success();
     }
 
+    /**
+     * 获取试卷中某题目的分值
+     *
+     * @param paperId  试卷id
+     * @param question 题目对象
+     * @return 该题在试卷中的分值，取不到则回退题目本身分值
+     */
+    /**
+     * 获取题目在试卷中的分值
+     *
+     * @param paperId 试卷ID
+     * @param question 题目对象
+     * @return int 题目分值
+     */
     private int getPaperQuestionScore(Integer paperId, Question question) {
         ExamPaperQuestion relation = examPaperQuestionService.getOne(
                 new LambdaQueryWrapper<ExamPaperQuestion>()
@@ -222,6 +366,18 @@ public class StudentExamController {
         return question.getScore() == null ? 0 : question.getScore();
     }
 
+    /**
+     * 归一化答案：去空格、统一分隔符并排序，用于客观题判分
+     *
+     * @param answer 原始答案
+     * @return 归一化后的答案字符串
+     */
+    /**
+     * 标准化答案字符串（去空格、排序、统一分隔符）
+     *
+     * @param answer 原始答案
+     * @return 标准化后的答案
+     */
     private String normalizeAnswer(String answer) {
         if (answer == null) {
             return "";
@@ -232,6 +388,20 @@ public class StudentExamController {
                 .collect(Collectors.joining(","));
     }
 
+    /**
+     * 保存错题，已存在则累加错误次数并更新，否则新增
+     *
+     * @param userId     用户id
+     * @param question   题目对象
+     * @param userAnswer 学生作答
+     */
+    /**
+     * 保存错题记录
+     *
+     * @param userId 用户ID
+     * @param question 题目对象
+     * @param userAnswer 用户答案
+     */
     private void saveWrongQuestion(Integer userId, Question question, String userAnswer) {
         WrongQuestion existed = wrongQuestionService.getOne(
                 new LambdaQueryWrapper<WrongQuestion>()

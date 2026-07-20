@@ -3,7 +3,7 @@ package com.example.onlineexamsystem.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.onlineexamsystem.annotation.Auth;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.AdminUserQueryDTO;
 import com.example.onlineexamsystem.pojo.dto.AdminUserSaveDTO;
@@ -18,6 +18,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * 管理员用户控制器
+ */
+/**
+ * 管理员用户控制器
+ */
 @RestController
 @RequestMapping("/admin/users")
 @RequiredArgsConstructor
@@ -25,6 +31,16 @@ import java.time.LocalDateTime;
 public class AdminUserController {
     private final BaseUserService baseUserService;
 
+    /**
+     * 分页查询用户列表
+     *
+     * @return Result<PageVO<BaseUser>>
+     */
+    /**
+     * 分页查询用户列表
+     *
+     * @return Result<PageVO<BaseUser>>
+     */
     @GetMapping("/listPage")
     public Result<PageVO<BaseUser>> listPage(AdminUserQueryDTO query) {
         Page<BaseUser> page = baseUserService.page(
@@ -41,11 +57,31 @@ public class AdminUserController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询用户详情
+     *
+     * @return Result<BaseUser>
+     */
+    /**
+     * 获取用户详情
+     *
+     * @return Result<BaseUser>
+     */
     @GetMapping("/{id}")
     public Result<BaseUser> detail(@PathVariable Integer id) {
         return Result.success(baseUserService.getById(id));
     }
 
+    /**
+     * 新增用户
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 新增用户
+     *
+     * @return Result<Void>
+     */
     @PostMapping
     public Result<Void> add(@Valid @RequestBody AdminUserSaveDTO dto) {
         BaseUser existed = baseUserService.getOne(new LambdaQueryWrapper<BaseUser>().eq(BaseUser::getAccount, dto.getAccount()));
@@ -61,6 +97,16 @@ public class AdminUserController {
         return Result.success();
     }
 
+    /**
+     * 修改用户
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 更新用户信息
+     *
+     * @return Result<Void>
+     */
     @PutMapping
     public Result<Void> update(@Valid @RequestBody AdminUserSaveDTO dto) {
         if (dto.getId() == null) {
@@ -75,6 +121,16 @@ public class AdminUserController {
         return Result.success();
     }
 
+    /**
+     * 修改用户登录状态
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 更新用户登录状态（启用/禁用）
+     *
+     * @return Result<Void>
+     */
     @PutMapping("/{id}/status")
     public Result<Void> updateStatus(@PathVariable Integer id, @RequestParam Boolean loginStatus) {
         BaseUser user = BaseUser.builder().id(id).loginStatus(loginStatus).build();
@@ -82,6 +138,16 @@ public class AdminUserController {
         return Result.success();
     }
 
+    /**
+     * 删除用户
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 删除用户
+     *
+     * @return Result<Void>
+     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Integer id) {
         baseUserService.removeById(id);

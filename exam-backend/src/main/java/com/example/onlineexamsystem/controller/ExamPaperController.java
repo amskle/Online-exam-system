@@ -17,6 +17,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * 试卷控制器
+ */
+/**
+ * 试卷管理控制器
+ */
 @RestController
 @RequestMapping("/examPaper")
 @RequiredArgsConstructor
@@ -25,6 +31,16 @@ public class ExamPaperController {
     private final ExamPaperService examPaperService;
     private final ExamPaperQuestionService examPaperQuestionService;
 
+    /**
+     * 分页查询试卷列表
+     *
+     * @return Result<PageVO<ExamPaper>>
+     */
+    /**
+     * 分页查询试卷列表
+     *
+     * @return Result<PageVO<ExamPaper>>
+     */
     @GetMapping("/listPage")
     public Result<PageVO<ExamPaper>> listPage(ExamPaperQueryDTO query) {
         Page<ExamPaper> page = examPaperService.page(
@@ -38,29 +54,79 @@ public class ExamPaperController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询试卷详情（含题目列表）
+     *
+     * @return Result<ExamPaperDetailVO>
+     */
+    /**
+     * 获取试卷详情（含题目列表）
+     *
+     * @return Result<ExamPaperDetailVO>
+     */
     @GetMapping("/{id}/detail")
     public Result<ExamPaperDetailVO> detail(@PathVariable Integer id) {
         return Result.success(examPaperService.detail(id));
     }
 
+    /**
+     * 新增试卷
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 新增试卷
+     *
+     * @return Result<Void>
+     */
     @PostMapping("/add")
     public Result<Void> add(@RequestBody ExamPaperSaveDTO dto) {
         examPaperService.savePaper(dto);
         return Result.success();
     }
 
+    /**
+     * 修改试卷
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 更新试卷
+     *
+     * @return Result<Void>
+     */
     @PutMapping("/update")
     public Result<Void> update(@RequestBody ExamPaperSaveDTO dto) {
         examPaperService.updatePaper(dto);
         return Result.success();
     }
 
+    /**
+     * 按题型难度配置自动组卷
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 自动组卷
+     *
+     * @return Result<Void>
+     */
     @PostMapping("/autoGenerate")
     public Result<Void> autoGenerate(@RequestBody AutoGeneratePaperDTO dto) {
         examPaperService.autoGenerate(dto);
         return Result.success();
     }
 
+    /**
+     * 删除试卷（同时清理试卷题目关联）
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 删除试卷
+     *
+     * @return Result<Void>
+     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Integer id) {
         examPaperService.removeById(id);

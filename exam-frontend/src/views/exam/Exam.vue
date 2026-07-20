@@ -81,7 +81,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { studentExamPaperDetailApi, studentExamRecordStartApi, studentExamRecordSubmitApi } from '@/api/student-api'
+import { studentExamPaperDetailApi, studentExamRecordStartApi, studentExamRecordSubmitApi, studentExamRecordWarnApi } from '@/api/student-api'
 import type { ExamPaper, ExamRecord, Question } from '@/types/admin'
 
 type AnswerValue = string | string[]
@@ -100,6 +100,13 @@ const remainingSeconds = ref(0)
 const leaveWarnings = ref(0)
 const currentAnchor = ref<number>()
 let timer: ReturnType<typeof setInterval> | undefined
+let examDeadline = 0
+
+const parseDateTime = (value?: string) => value ? new Date(value.replace(' ', 'T')).getTime() : NaN
+
+const updateRemainingTime = () => {
+  remainingSeconds.value = Math.max(0, Math.ceil((examDeadline - Date.now()) / 1000))
+}
 
 const timeText = computed(() => {
   const hour = Math.floor(remainingSeconds.value / 3600)
@@ -119,16 +126,34 @@ const loadExam = async () => {
   }
   try {
     loading.value = true
-    const recordResponse = await studentExamRecordStartApi(paperId)
-    record.value = recordResponse.data ?? null
     const paperResponse = await studentExamPaperDetailApi(paperId)
     paper.value = paperResponse.data ?? null
+    const now = Date.now()
+    const paperStartAt = parseDateTime(paper.value?.startTime)
+    const paperEndAt = parseDateTime(paper.value?.endTime)
+    if (!Number.isNaN(paperStartAt) && now < paperStartAt) {
+      throw new Error('考试尚未开始')
+    }
+    if (!Number.isNaN(paperEndAt) && now >= paperEndAt) {
+      throw new Error('考试已结束，无法参加')
+    }
+    const recordResponse = await studentExamRecordStartApi(paperId)
+    record.value = recordResponse.data ?? null
     questions.value = (paper.value?.questions ?? []) as PaperQuestion[]
     questions.value.forEach((question) => {
       if (!question.id) return
       answers[question.id] = question.type === 2 ? [] : ''
     })
-    remainingSeconds.value = Math.max((paper.value?.duration ?? 0) * 60, 0)
+    const recordStartedAt = parseDateTime(record.value?.startTime)
+    const durationDeadline = (Number.isNaN(recordStartedAt) ? Date.now() : recordStartedAt)
+      + (paper.value?.duration ?? 0) * 60 * 1000
+    examDeadline = Number.isNaN(paperEndAt) ? durationDeadline : Math.min(durationDeadline, paperEndAt)
+    updateRemainingTime()
+    if (remainingSeconds.value === 0) {
+      ElMessage.warning('考试时间已结束')
+      await autoSubmit()
+      return
+    }
     startTimer()
     await nextTick()
     currentAnchor.value = questions.value[0]?.id
@@ -144,13 +169,11 @@ const startTimer = () => {
   if (timer) clearInterval(timer)
   timer = setInterval(() => {
     if (submitted.value) return
-    if (remainingSeconds.value <= 1) {
-      remainingSeconds.value = 0
+    updateRemainingTime()
+    if (remainingSeconds.value === 0) {
       clearInterval(timer)
       autoSubmit()
-      return
     }
-    remainingSeconds.value -= 1
   }, 1000)
 }
 
@@ -240,6 +263,9 @@ const handleVisibilityChange = () => {
   if (document.hidden && !submitted.value) {
     leaveWarnings.value += 1
     ElMessage.warning(`检测到离开考试页面，请保持考试页面可见（第 ${leaveWarnings.value} 次）`)
+    if (record.value?.id) {
+      studentExamRecordWarnApi(record.value.id).catch(() => {})
+    }
   }
 }
 

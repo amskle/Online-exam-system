@@ -494,6 +494,18 @@ const submitPaper = async () => {
     ElMessage.warning('请至少添加一道题目')
     return
   }
+  if (paperForm.startTime && paperForm.endTime) {
+    const start = new Date(paperForm.startTime.replace(' ', 'T')).getTime()
+    const end = new Date(paperForm.endTime.replace(' ', 'T')).getTime()
+    if (end <= start) {
+      ElMessage.warning('考试结束时间必须晚于开始时间')
+      return
+    }
+    if (end - start < (paperForm.duration ?? 0) * 60 * 1000) {
+      ElMessage.warning('考试有效期不能短于考试时长')
+      return
+    }
+  }
   if (isEditing.value) {
     await examPaperUpdateApi(buildPaperPayload())
   } else {
@@ -531,6 +543,25 @@ const submitAutoPaper = async () => {
   const invalid = enabledConfigs.find((item) => item.easy + item.medium + item.hard !== item.count)
   if (invalid) {
     ElMessage.warning(`${typeLabel(invalid.type)} 的难度分布合计必须等于题目数量`)
+    return
+  }
+  const questionResponse = await questionListPageApi({
+    pageNum: 1,
+    pageSize: 1000,
+    subjectId: autoForm.subjectId
+  })
+  const availableQuestions = questionResponse.data?.records ?? []
+  const availableCount = (type: number, difficulty?: number) => availableQuestions.filter((question) => {
+    return question.type === type && (difficulty === undefined || question.difficulty === difficulty)
+  }).length
+  const insufficient = enabledConfigs.some((config) => {
+    return availableCount(config.type) < config.count
+      || availableCount(config.type, 1) < config.easy
+      || availableCount(config.type, 2) < config.medium
+      || availableCount(config.type, 3) < config.hard
+  })
+  if (insufficient) {
+    ElMessage.warning('题库数量不足，无法组卷')
     return
   }
   if (autoTotalScore.value !== autoForm.totalScore) {

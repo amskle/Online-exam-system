@@ -47,6 +47,10 @@
         <el-input v-model="updateInfoDTO.phone" placeholder="请输入手机号" />
       </div>
       <div>
+        <p>邮箱</p>
+        <el-input v-model="updateInfoDTO.email" placeholder="请输入邮箱" />
+      </div>
+      <div>
         <p>性别</p>
         <el-radio-group v-model="updateInfoDTO.gender" size="large" fill="#409eff">
           <el-radio-button label="男" :value="Number(1)" />

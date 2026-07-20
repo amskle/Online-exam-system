@@ -17,6 +17,12 @@ public enum RoleEnum {
     private final Integer role;
     private final String description;
 
+    /**
+     * 根据角色值获取枚举
+     *
+     * @param role 角色值
+     * @return RoleEnum
+     */
     public static RoleEnum getByRole(Integer role) {
         for (RoleEnum r : values()) {
             if (r.role.equals(role)) {

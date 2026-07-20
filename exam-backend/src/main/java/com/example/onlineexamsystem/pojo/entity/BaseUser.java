@@ -30,6 +30,8 @@ public class BaseUser {
     private String username; // 用户名
     private Integer gender; // 性别(1.男，2.女)
     private String phone; // 电话
+    private String email; // 邮箱
+    private LocalDateTime emailVerifyTime; // 邮箱验证时间
     private Boolean loginStatus; // 登录状态(0.正常，1.封号)
     private Integer role; // 角色(1.学生，2.教师，3.管理员)
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")

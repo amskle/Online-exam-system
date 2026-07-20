@@ -5,6 +5,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 
+/**
+ * 在线考试系统启动类
+ */
 @MapperScan("com.example.onlineexamsystem.mapper")
 @SpringBootApplication
 public class OnlineExamSystemApplication {

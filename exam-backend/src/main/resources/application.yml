@@ -21,7 +21,28 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema-admin.sql
-
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: 100ms
+  mail:
+    host: smtp.qq.com
+    port: 465
+    username: 2061133513@qq.com
+    password: ${MAIL_AUTH_CODE:}
+    properties:
+      mail:
+        smtp:
+          ssl:
+            enable: true
+          auth: true
 server:
   port: 8077
 mybatis-plus:
@@ -34,3 +55,9 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 file:
   upload-dir: file
+auth:
+  email-code-ttl: 5m
+  email-send-cooldown: 60s
+  email-daily-limit: 10
+  trusted-device-ttl: 7d
+  trusted-device-secure-cookie: false

@@ -1,7 +1,7 @@
 package com.example.onlineexamsystem.interceptor;
 
 import com.example.onlineexamsystem.annotation.Auth;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.api.ResultCode;
 import com.example.onlineexamsystem.utils.JwtUtil;
@@ -31,6 +31,11 @@ public class JwtInterceptor implements HandlerInterceptor {
             "/files/upload"
     };
 
+    /**
+     * 请求前置拦截：验证 Token 与角色权限
+     *
+     * @return boolean 是否放行
+     */
     @Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response,

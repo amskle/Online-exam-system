@@ -6,6 +6,9 @@ import com.example.onlineexamsystem.pojo.entity.ExamRecordAnswer;
 import com.example.onlineexamsystem.service.ExamRecordAnswerService;
 import org.springframework.stereotype.Service;
 
+/**
+ * 考试答题明细服务实现类
+ */
 @Service
 public class ExamRecordAnswerServiceImpl extends ServiceImpl<ExamRecordAnswerMapper, ExamRecordAnswer> implements ExamRecordAnswerService {
 }

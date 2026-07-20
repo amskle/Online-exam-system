@@ -14,6 +14,9 @@ export const studentExamRecordStartApi = (paperId: number) =>
 export const studentExamRecordSubmitApi = (params: { recordId?: number; paperId?: number; answers: Array<{ questionId?: number; userAnswer?: string }> }) =>
   request.post<Result<void>>('/student/examRecords/submit', params)
 
+export const studentExamRecordWarnApi = (recordId: number) =>
+  request.post<Result<void>>(`/student/examRecords/warn?recordId=${recordId}`)
+
 export const studentExamRecordListApi = (params: PageQuery & { paperTitle?: string; status?: number }) =>
   request.get<Result<PageVO<ExamRecord>>>('/student/examRecords/listPage', params)
 

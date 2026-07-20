@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 自动组卷参数
+ */
 @Data
 public class AutoGeneratePaperDTO {
     private String title;

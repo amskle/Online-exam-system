@@ -8,6 +8,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 科目实体
+ */
 @Data
 @TableName("subject")
 public class Subject {

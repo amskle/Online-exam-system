@@ -13,7 +13,7 @@ import java.nio.file.Paths;
 import java.util.UUID;
 
 /**
- * File upload service.
+ * 文件上传服务
  */
 @Service
 @Slf4j
@@ -24,6 +24,13 @@ public class FileUploadService {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
+    /**
+     * 上传文件到指定子目录，返回可访问路径
+     *
+     * @param file   上传的文件
+     * @param subDir 存储子目录，为空时使用默认目录
+     * @return 文件可访问路径
+     */
     public String uploadFile(MultipartFile file, String subDir) throws IOException {
         if (file == null || file.isEmpty()) {
             log.warn("上传失败，文件为空");
@@ -48,6 +55,12 @@ public class FileUploadService {
         return ACCESS_PREFIX + normalizedSubDir + "/" + uniqueFileName;
     }
 
+    /**
+     * 删除文件
+     *
+     * @param filePath 文件可访问路径
+     * @return 是否删除成功
+     */
     public boolean deleteFile(String filePath) {
         if (!StringUtils.hasText(filePath)) {
             log.warn("删除文件失败，文件路径为空");
@@ -70,10 +83,21 @@ public class FileUploadService {
         }
     }
 
+    /**
+     * 解析上传根目录的绝对路径
+     *
+     * @return 上传根目录
+     */
     private Path resolveUploadRoot() {
         return Paths.get(System.getProperty("user.dir"), uploadDir).toAbsolutePath().normalize();
     }
 
+    /**
+     * 将可访问路径解析为文件系统路径，并防止路径穿越
+     *
+     * @param filePath 文件可访问路径
+     * @return 文件系统绝对路径
+     */
     private Path resolveFilePath(String filePath) {
         String normalizedFilePath = filePath.replace("\\", "/");
         if (normalizedFilePath.startsWith(ACCESS_PREFIX)) {
@@ -90,6 +114,12 @@ public class FileUploadService {
         return targetPath;
     }
 
+    /**
+     * 规范化子目录名称，防止路径穿越
+     *
+     * @param subDir 原始子目录
+     * @return 规范化后的子目录
+     */
     private String normalizeSubDir(String subDir) {
         String normalizedSubDir = StringUtils.hasText(subDir) ? subDir.trim().replace("\\", "/") : DEFAULT_SUB_DIR;
         while (normalizedSubDir.startsWith("/")) {
@@ -110,6 +140,12 @@ public class FileUploadService {
         return normalizedSubDir;
     }
 
+    /**
+     * 获取文件扩展名（含点号），无扩展名返回空串
+     *
+     * @param originalFilename 原始文件名
+     * @return 文件扩展名
+     */
     private String getFileExtension(String originalFilename) {
         String filename = StringUtils.cleanPath(originalFilename == null ? "" : originalFilename);
         int extensionIndex = filename.lastIndexOf(".");

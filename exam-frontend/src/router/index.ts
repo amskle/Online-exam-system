@@ -29,6 +29,15 @@ const routes: RouteRecordRaw[] = [
         }
     },
     {
+        path: '/email-verify',
+        name: 'EmailVerify',
+        component: () => import('@/views/EmailVerifyPage.vue'),
+        meta: {
+            title: '邮箱验证',
+            requiresAuth: false
+        }
+    },
+    {
         path: '/admin-home',
         component: () => import('@/layouts/AdminLayout.vue'),
         redirect: () => {

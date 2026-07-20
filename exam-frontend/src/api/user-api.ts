@@ -2,6 +2,8 @@ import type { Result } from "@/types/result"
 import type {
     BaseUserUpdateDTO,
     BaseUserVO,
+    EmailSendDTO,
+    EmailVerifyDTO,
     UserLoginDTO,
     UserLoginResponseVO,
     UserRegisterDTO,
@@ -14,7 +16,13 @@ export const loginApi = (params: UserLoginDTO) => {
 }
 // 用户注册
 export const registerApi = (params: UserRegisterDTO) => {
-    return request.post<Result<string>>("/user/register", params)
+    return request.post<Result<UserLoginResponseVO>>("/user/register", params)
+}
+export const sendEmailCodeApi = (params: EmailSendDTO) => {
+    return request.post<Result<UserLoginResponseVO>>("/email/send", params)
+}
+export const verifyEmailCodeApi = (params: EmailVerifyDTO) => {
+    return request.post<Result<UserLoginResponseVO>>("/email/verify", params)
 }
 // Token认证
 export const userTokenAuthApi = (token: string) => {

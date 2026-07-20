@@ -4,6 +4,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+/**
+ * 管理员用户保存/更新参数
+ */
 @Data
 public class AdminUserSaveDTO {
     private Integer id;

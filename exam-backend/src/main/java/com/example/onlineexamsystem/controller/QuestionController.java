@@ -3,7 +3,7 @@ package com.example.onlineexamsystem.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.onlineexamsystem.annotation.Auth;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.QuestionQueryDTO;
 import com.example.onlineexamsystem.pojo.entity.Question;
@@ -14,6 +14,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * 题目控制器
+ */
+/**
+ * 题目管理控制器
+ */
 @RestController
 @RequestMapping("/question")
 @RequiredArgsConstructor
@@ -21,6 +27,16 @@ import java.time.LocalDateTime;
 public class QuestionController {
     private final QuestionService questionService;
 
+    /**
+     * 分页查询题目列表
+     *
+     * @return Result<PageVO<Question>>
+     */
+    /**
+     * 分页查询题目列表
+     *
+     * @return Result<PageVO<Question>>
+     */
     @GetMapping("/listPage")
     public Result<PageVO<Question>> listPage(QuestionQueryDTO query) {
         Page<Question> page = questionService.page(
@@ -34,11 +50,31 @@ public class QuestionController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询题目详情
+     *
+     * @return Result<Question>
+     */
+    /**
+     * 获取题目详情
+     *
+     * @return Result<Question>
+     */
     @GetMapping("/{id}")
     public Result<Question> detail(@PathVariable Integer id) {
         return Result.success(questionService.getById(id));
     }
 
+    /**
+     * 新增题目
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 新增题目
+     *
+     * @return Result<Void>
+     */
     @PostMapping
     public Result<Void> add(@RequestBody Question question) {
         if (question.getSubjectId() == null || question.getType() == null || question.getDifficulty() == null) {
@@ -50,12 +86,32 @@ public class QuestionController {
         return Result.success();
     }
 
+    /**
+     * 修改题目
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 更新题目
+     *
+     * @return Result<Void>
+     */
     @PutMapping
     public Result<Void> update(@RequestBody Question question) {
         questionService.updateById(question);
         return Result.success();
     }
 
+    /**
+     * 删除题目
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 删除题目
+     *
+     * @return Result<Void>
+     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Integer id) {
         questionService.removeById(id);

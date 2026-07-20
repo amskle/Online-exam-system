@@ -10,9 +10,13 @@ export interface UserLoginDTO {
  * 登录响应数据返回类
  */
 export interface UserLoginResponseVO {
+    status?: 'AUTHENTICATED' | 'EMAIL_REQUIRED' | 'EMAIL_VERIFICATION_REQUIRED'
     token?: string
     role?: number
     roleName?: string
+    challengeId?: string
+    maskedEmail?: string
+    expiresIn?: number
 }
 /**
  * 用户注册参数
@@ -22,6 +26,18 @@ export interface UserRegisterDTO {
     password?: string
     username?: string
     role?: number
+    email?: string
+}
+
+export interface EmailSendDTO {
+    challengeId: string
+    email?: string
+}
+
+export interface EmailVerifyDTO {
+    challengeId: string
+    code: string
+    trustDevice: boolean
 }
 
 /**
@@ -40,6 +56,8 @@ export interface BaseUserVO {
     avatar?: string
     gender?: number
     phone?: string
+    email?: string
+    emailVerifyTime?: string
     loginStatus?: boolean
     role?: number
 }
@@ -52,6 +70,7 @@ export interface BaseUserUpdateDTO {
     avatar?: string
     gender?: number
     phone?: string
+    email?: string
     loginStatus?: boolean
     role?: number
 }

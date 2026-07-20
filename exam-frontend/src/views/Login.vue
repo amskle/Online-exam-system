@@ -1,55 +1,86 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { loginApi, registerApi } from '@/api/user-api'
-import { setRole, setRoleName, setToken, saveRememberedLogin, getRememberedLogin, clearRememberedLogin, RoleEnum } from '@/utils/localStorage'
+import type { UserLoginResponseVO } from '@/types/user'
+import { saveAuthChallenge, type AuthPurpose } from '@/utils/authChallenge'
+import {
+  clearRememberedLogin,
+  getRememberedLogin,
+  RoleEnum,
+  saveRememberedLogin,
+  setRole,
+  setRoleName,
+  setToken
+} from '@/utils/localStorage'
 
-// ===== 登录逻辑（原样保留） =====
-const account = ref('')
-const password = ref('')
 const router = useRouter()
-const gologin = async () => {
-  try {
-    const response = await loginApi({
-      account: account.value,
-      password: password.value
-    })
-
-    const role = (response?.data?.role ?? 0) as RoleEnum
-    setToken(response?.data?.token ?? '')
-    setRole(role)
-    setRoleName(response?.data?.roleName ?? '')
-
-    if (rememberMe.value) {
-      saveRememberedLogin(account.value, password.value)
-    } else {
-      clearRememberedLogin()
-    }
-    ElMessage.success('登录成功')
-    if (role === RoleEnum.ADMIN) {
-      router.push('/admin-home/dashboards')
-      return
-    }
-    if (role === RoleEnum.TEACHER) {
-      router.push('/admin-home/questions')
-      return
-    }
-    router.push('/user-home/dashboards')
-  } catch (error: any) {
-    ElMessage.warning(`${error.message}`)
-  }
-}
-
-// ===== 注册相关 =====
 const mode = ref<'login' | 'register'>('login')
 const isLogin = computed(() => mode.value === 'login')
+const submitting = ref(false)
 
+const account = ref('')
+const password = ref('')
+const rememberMe = ref(false)
 const registerAccount = ref('')
 const registerPassword = ref('')
 const registerUsername = ref('')
-const registerRole = ref(1) // 1=学生, 2=教师
-const rememberMe = ref(false)
+const registerEmail = ref('')
+const registerRole = ref(1)
+const loginPwdVisible = ref(false)
+const regPwdVisible = ref(false)
+
+const finishLogin = async (data: UserLoginResponseVO) => {
+  const role = (data.role ?? 0) as RoleEnum
+  if (!data.token || !role) throw new Error('登录响应不完整')
+  setToken(data.token)
+  setRole(role)
+  setRoleName(data.roleName ?? '')
+  ElMessage.success('登录成功')
+  if (role === RoleEnum.ADMIN) return router.push('/admin-home/dashboards')
+  if (role === RoleEnum.TEACHER) return router.push('/admin-home/questions')
+  return router.push('/user-home/dashboards')
+}
+
+const continueAuth = async (data: UserLoginResponseVO, purpose: AuthPurpose) => {
+  if (data.status === 'AUTHENTICATED') {
+    await finishLogin(data)
+    return
+  }
+  if (!data.challengeId) throw new Error('未获取到邮箱验证请求')
+  saveAuthChallenge({
+    challengeId: data.challengeId,
+    purpose,
+    maskedEmail: data.maskedEmail,
+    emailRequired: data.status === 'EMAIL_REQUIRED',
+    expiresAt: Date.now() + (data.expiresIn ?? 300) * 1000
+  })
+  await router.push('/email-verify')
+}
+
+const gologin = async () => {
+  if (!account.value.trim()) {
+    ElMessage.warning('请输入账号')
+    return
+  }
+  if (!password.value) {
+    ElMessage.warning('请输入密码')
+    return
+  }
+  submitting.value = true
+  try {
+    const response = await loginApi({ account: account.value.trim(), password: password.value })
+    if (rememberMe.value) saveRememberedLogin(account.value.trim())
+    else clearRememberedLogin()
+    await continueAuth(response.data ?? {}, 'LOGIN')
+  } catch (error: any) {
+    ElMessage.warning(error?.message ?? '登录失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
 const switchTab = (tab: 'login' | 'register') => {
   mode.value = tab
 }
@@ -59,50 +90,41 @@ const pickRole = (role: number) => {
 }
 
 const goRegister = async () => {
-  if (!registerUsername.value.trim()) {
-    ElMessage.warning('请输入姓名')
-    return
-  }
-  if (registerUsername.value.trim().length > 20) {
-    ElMessage.warning('姓名长度不能超过20位')
-    return
-  }
-  if (!registerAccount.value.trim()) {
-    ElMessage.warning('请输入账号')
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!registerUsername.value.trim() || registerUsername.value.trim().length > 20) {
+    ElMessage.warning('请输入不超过20位的姓名')
     return
   }
   if (registerAccount.value.trim().length < 3 || registerAccount.value.trim().length > 30) {
     ElMessage.warning('账号长度必须在3-30位之间')
     return
   }
-  if (!registerPassword.value.trim()) {
-    ElMessage.warning('请输入密码')
+  if (registerPassword.value.length < 6 || registerPassword.value.length > 30) {
+    ElMessage.warning('密码长度必须在6-30位之间')
+    return
+  }
+  if (!emailPattern.test(registerEmail.value.trim())) {
+    ElMessage.warning('请输入正确的邮箱地址')
     return
   }
 
+  submitting.value = true
   try {
-    await registerApi({
+    const response = await registerApi({
       account: registerAccount.value.trim(),
-      password: registerPassword.value.trim(),
+      password: registerPassword.value,
       username: registerUsername.value.trim(),
-      role: registerRole.value
+      role: registerRole.value,
+      email: registerEmail.value.trim()
     })
-    ElMessage.success('注册成功，请登录')
-    mode.value = 'login'
-    registerAccount.value = ''
-    registerPassword.value = ''
-    registerUsername.value = ''
-    registerRole.value = 1
+    await continueAuth(response.data ?? {}, 'REGISTER')
   } catch (error: any) {
-    ElMessage.warning(`${error.message}`)
+    ElMessage.warning(error?.message ?? '注册失败')
+  } finally {
+    submitting.value = false
   }
 }
 
-// ===== 密码显隐切换 =====
-const loginPwdVisible = ref(false)
-const regPwdVisible = ref(false)
-
-// ===== 答题卡倒计时装饰 =====
 const timerText = ref('42:18')
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let totalSeconds = 42 * 60 + 18
@@ -111,7 +133,6 @@ onMounted(() => {
   const remembered = getRememberedLogin()
   if (remembered) {
     account.value = remembered.account
-    password.value = remembered.password
     rememberMe.value = true
   }
   timerInterval = setInterval(() => {
@@ -188,22 +209,6 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-
-        <!-- 统计数据 -->
-        <div class="brand-foot">
-          <div class="stat">
-            <div class="stat-num">128</div>
-            <div class="stat-label">今日考试场次</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">99.6%</div>
-            <div class="stat-label">系统稳定率</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num">3</div>
-            <div class="stat-label">角色权限体系</div>
-          </div>
-        </div>
       </div>
 
       <!-- ===== 右栏：认证面板 ===== -->
@@ -223,7 +228,7 @@ onUnmounted(() => {
             <div class="field">
               <label>账号</label>
               <div class="input-wrap">
-                <input v-model="account" type="text" placeholder="请输入用户名" autocomplete="username"
+                <input v-model="account" type="text" placeholder="请输入账号" autocomplete="username"
                   @keyup.enter="gologin" />
               </div>
             </div>
@@ -241,12 +246,14 @@ onUnmounted(() => {
 
             <div class="row-between">
               <label class="remember">
-                <input type="checkbox" v-model="rememberMe" /> 记住我
+                <input type="checkbox" v-model="rememberMe" /> 记住账号
               </label>
               <a class="forgot">忘记密码？</a>
             </div>
 
-            <button class="btn-primary" type="button" @click="gologin">登录</button>
+            <button class="btn-primary" type="button" :disabled="submitting" @click="gologin">
+              {{ submitting ? '处理中...' : '登录' }}
+            </button>
 
             <p class="switch-line">还没有账号？<a @click="switchTab('register')">立即注册</a></p>
           </div>
@@ -291,7 +298,17 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <button class="btn-primary" type="button" @click="goRegister">注册</button>
+            <div class="field">
+              <label>邮箱</label>
+              <div class="input-wrap">
+                <input v-model="registerEmail" type="email" placeholder="用于登录验证" autocomplete="email"
+                  @keyup.enter="goRegister" />
+              </div>
+            </div>
+
+            <button class="btn-primary" type="button" :disabled="submitting" @click="goRegister">
+              {{ submitting ? '处理中...' : '注册' }}
+            </button>
 
             <p class="switch-line">已有账号？<a @click="switchTab('login')">直接登录</a></p>
           </div>
@@ -765,6 +782,11 @@ onUnmounted(() => {
 
 .btn-primary:hover {
   background: var(--accent-dark);
+}
+
+.btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 /* 切换链接 */

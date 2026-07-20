@@ -6,6 +6,9 @@ import com.example.onlineexamsystem.pojo.entity.WrongQuestion;
 import com.example.onlineexamsystem.service.WrongQuestionService;
 import org.springframework.stereotype.Service;
 
+/**
+ * 错题服务实现类
+ */
 @Service
 public class WrongQuestionServiceImpl extends ServiceImpl<WrongQuestionMapper, WrongQuestion> implements WrongQuestionService {
 }

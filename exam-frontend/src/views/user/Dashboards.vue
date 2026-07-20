@@ -53,7 +53,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { studentExamPaperListApi, studentExamRecordStartApi } from '@/api/student-api'
+import { studentExamPaperListApi } from '@/api/student-api'
 import type { ExamPaper } from '@/types/admin'
 
 const router = useRouter()
@@ -95,20 +95,23 @@ const formatRange = (start?: string, end?: string) => {
   return `${start || '不限'} ~ ${end || '不限'}`
 }
 
-const getErrorMessage = (error: any) => error?.message || error?.response?.data?.message || '无法开始考试'
+const parseDateTime = (value?: string) => value ? new Date(value.replace(' ', 'T')).getTime() : NaN
 
-const startExam = async (paper: ExamPaper) => {
+const startExam = (paper: ExamPaper) => {
   if (!paper.id) return
-  try {
-    startingId.value = paper.id
-    await studentExamRecordStartApi(paper.id)
-    const route = router.resolve({ path: `/exam/${paper.id}` })
-    window.open(route.href, '_blank')
-  } catch (error: any) {
-    ElMessage.warning(getErrorMessage(error))
-  } finally {
-    startingId.value = undefined
+  const now = Date.now()
+  const startTime = parseDateTime(paper.startTime)
+  const endTime = parseDateTime(paper.endTime)
+  if (!Number.isNaN(startTime) && now < startTime) {
+    ElMessage.warning('考试尚未开始')
+    return
   }
+  if (!Number.isNaN(endTime) && now >= endTime) {
+    ElMessage.warning('考试已结束，无法参加')
+    return
+  }
+  const route = router.resolve({ path: `/exam/${paper.id}` })
+  window.open(route.href, '_blank')
 }
 
 watch(() => [page.current, page.size], loadPapers)

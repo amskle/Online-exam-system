@@ -38,6 +38,13 @@
             <el-tag :type="row.status === 1 ? 'success' : 'warning'">{{ row.status === 1 ? '已交卷' : '进行中' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="切屏" width="80">
+          <template #default="{ row }">
+            <span :style="{ color: (row.warningCount ?? 0) > 0 ? '#dc2626' : '#9ca3af', fontWeight: (row.warningCount ?? 0) > 0 ? 700 : 400 }">
+              {{ row.warningCount ?? 0 }} 次
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column prop="startTime" label="开始时间" min-width="170" />
         <el-table-column prop="submitTime" label="交卷时间" min-width="170" />
         <el-table-column label="操作" width="170" fixed="right">
@@ -75,6 +82,12 @@
           <div>
             <span>考试次数</span>
             <strong>第 {{ currentRecord.attemptCount ?? 1 }} 次</strong>
+          </div>
+          <div>
+            <span>切屏次数</span>
+            <strong :style="{ color: (currentRecord.warningCount ?? 0) > 0 ? '#dc2626' : '#111827' }">
+              {{ currentRecord.warningCount ?? 0 }} 次
+            </strong>
           </div>
         </div>
 

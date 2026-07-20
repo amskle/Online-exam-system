@@ -91,6 +91,7 @@ export interface ExamRecord {
   startTime?: string
   submitTime?: string
   createTime?: string
+  warningCount?: number
   answers?: ExamRecordAnswer[]
 }
 

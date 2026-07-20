@@ -6,6 +6,7 @@ import { getToken } from './localStorage'
 const instance = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
     timeout: 15000,
+    withCredentials: true,
 })
 // 请求拦截器
 instance.interceptors.request.use((config: InternalAxiosRequestConfig) => {

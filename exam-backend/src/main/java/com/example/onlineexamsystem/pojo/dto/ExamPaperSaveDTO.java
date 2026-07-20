@@ -6,6 +6,9 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 试卷保存/更新参数
+ */
 @Data
 public class ExamPaperSaveDTO {
     private Integer id;

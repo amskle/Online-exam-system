@@ -16,6 +16,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * 考试记录控制器
+ */
+/**
+ * 考试记录控制器（管理员/教师）
+ */
 @RestController
 @RequestMapping("/examRecord")
 @RequiredArgsConstructor
@@ -24,6 +30,16 @@ public class ExamRecordController {
     private final ExamRecordService examRecordService;
     private final ExamRecordAnswerService examRecordAnswerService;
 
+    /**
+     * 分页查询考试记录列表
+     *
+     * @return Result<PageVO<ExamRecord>>
+     */
+    /**
+     * 分页查询考试记录
+     *
+     * @return Result<PageVO<ExamRecord>>
+     */
     @GetMapping("/listPage")
     public Result<PageVO<ExamRecord>> listPage(ExamRecordQueryDTO query) {
         Page<ExamRecord> page = examRecordService.page(
@@ -37,17 +53,47 @@ public class ExamRecordController {
         return Result.success(new PageVO<>(page.getRecords(), page.getTotal()));
     }
 
+    /**
+     * 查询考试记录详情（含答题明细）
+     *
+     * @return Result<ExamRecordDetailVO>
+     */
+    /**
+     * 获取考试记录详情（含答题内容）
+     *
+     * @return Result<ExamRecordDetailVO>
+     */
     @GetMapping("/{id}/detail")
     public Result<ExamRecordDetailVO> detail(@PathVariable Integer id) {
         return Result.success(examRecordService.detail(id));
     }
 
+    /**
+     * 批改主观题并汇总得分
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 批改主观题
+     *
+     * @return Result<Void>
+     */
     @PostMapping("/grade")
     public Result<Void> grade(@RequestBody ExamRecordGradeDTO dto) {
         examRecordService.grade(dto);
         return Result.success();
     }
 
+    /**
+     * 删除考试记录（同时清理答题明细）
+     *
+     * @return Result<Void>
+     */
+    /**
+     * 删除考试记录
+     *
+     * @return Result<Void>
+     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Integer id) {
         examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, id));

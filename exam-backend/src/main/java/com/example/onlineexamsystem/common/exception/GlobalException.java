@@ -1,4 +1,4 @@
-package com.example.onlineexamsystem.exception;
+package com.example.onlineexamsystem.common.exception;
 
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.api.ResultCode;
@@ -41,6 +41,9 @@ public class GlobalException {
         return Result.fail(ResultCode.ERROR.getCode(), "系统繁忙，请稍后再试");
     }
 
+    /**
+     * 处理参数校验异常（@Valid）
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getAllErrors().stream()

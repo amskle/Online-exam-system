@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.Map;
 
+/**
+ * 题型配置参数（自动组卷用）
+ */
 @Data
 public class QuestionTypeConfigDTO {
     private Integer type;

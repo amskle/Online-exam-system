@@ -2,7 +2,7 @@ package com.example.onlineexamsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.mapper.BaseUserMapper;
 import com.example.onlineexamsystem.pojo.dto.BaseUserUpdateDTO;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
@@ -16,16 +16,16 @@ import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
 import com.example.onlineexamsystem.service.FileUploadService;
 import com.example.onlineexamsystem.utils.JwtUtil;
-import com.fasterxml.jackson.databind.util.BeanUtil;
 import io.jsonwebtoken.Claims;
 import lombok.AllArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-/*
+/**
  * 基础用户服务实现类
  */
 @Service
@@ -33,7 +33,7 @@ import java.util.Objects;
 public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> implements BaseUserService {
     private final JwtUtil jwtUtil;
     private final FileUploadService fileUploadService;
-
+    private final PasswordEncoder passwordEncoder;
 
     /**
      * 登录
@@ -51,7 +51,10 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
             throw new BusinessException("账号不存在");
         }
         // 密码判断
-        if (!Objects.equals(baseUser.getPassword(), userLoginDTO.getPassword())) {
+        boolean passwordMatched = baseUser.getPassword().startsWith("$2")
+                ? passwordEncoder.matches(userLoginDTO.getPassword(), baseUser.getPassword())
+                : Objects.equals(baseUser.getPassword(), userLoginDTO.getPassword());
+        if (!passwordMatched) {
             throw new BusinessException("密码错误");
         }
         if (Boolean.TRUE.equals(baseUser.getLoginStatus())) {
@@ -61,6 +64,7 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
         String token = jwtUtil.generateToken(baseUser.getId(), baseUser.getRole());
         return UserLoginResponseVO
                 .builder()
+                .status("AUTHENTICATED")
                 .token(token)
                 .role(baseUser.getRole())
                 .roleName(RoleEnum.getByRole(baseUser.getRole()).getDescription())
@@ -83,9 +87,11 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
         }
         BaseUser baseUserSave = BaseUser.builder()
                 .account(userRegisterDTO.getAccount())
-                .password(userRegisterDTO.getPassword())
+                .password(passwordEncoder.encode(userRegisterDTO.getPassword()))
                 .username(userRegisterDTO.getUsername())
-                .role(userRegisterDTO.getRole() != null ? userRegisterDTO.getRole() : 1)
+                .role(userRegisterDTO.getRole())
+                .email(userRegisterDTO.getEmail())
+                .emailVerifyTime(LocalDateTime.now())
                 .loginStatus(AccountStatusEnum.NORMAL.getStatusCode())
                 .createTime(LocalDateTime.now())
                 .build();
@@ -117,6 +123,8 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
                 .avatar(baseUser.getAvatar())
                 .gender(baseUser.getGender())
                 .phone(baseUser.getPhone())
+                .email(baseUser.getEmail())
+                .emailVerifyTime(baseUser.getEmailVerifyTime())
                 .loginStatus(baseUser.getLoginStatus())
                 .role(baseUser.getRole())
                 .build();
@@ -124,7 +132,6 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
 
     /**
      * 修改密码
-     * TODO 权限认证
      *
      * @param id                    用户id
      * @param userUpdatePasswordDTO 修改密码参数对象
@@ -138,7 +145,7 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
             }
             BaseUser buildUserEntity = BaseUser.builder()
                     .id(id)
-                    .password(userUpdatePasswordDTO.getPassword())
+                    .password(passwordEncoder.encode(userUpdatePasswordDTO.getPassword()))
                     .build();
             this.updateById(buildUserEntity);
         }
@@ -160,6 +167,11 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
         this.updateById(baseUser);
     }
 
+    /**
+     * 修改头像（切换头像时删除旧文件）
+     *
+     * @param baseUserUpdateDTO 修改个人信息参数对象
+     */
     @Override
     public void updateAvatar(BaseUserUpdateDTO baseUserUpdateDTO) {
         BaseUser user = this.getById(baseUserUpdateDTO.getId());

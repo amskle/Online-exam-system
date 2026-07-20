@@ -18,6 +18,17 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class FileUploadController {
     private final FileUploadService fileUploadService;
+
+    /**
+     * 文件上传
+     *
+     * @return Result<FileUploadResponseVO>
+     */
+    /**
+     * 上传文件
+     *
+     * @return Result<FileUploadResponseVO>
+     */
     @PostMapping("/upload")
     public Result<FileUploadResponseVO> uploadFile(
             @RequestParam("file")MultipartFile file,

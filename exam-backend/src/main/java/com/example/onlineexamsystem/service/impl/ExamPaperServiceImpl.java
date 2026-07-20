@@ -2,7 +2,7 @@ package com.example.onlineexamsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.onlineexamsystem.exception.BusinessException;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.mapper.ExamPaperMapper;
 import com.example.onlineexamsystem.pojo.dto.AutoGeneratePaperDTO;
 import com.example.onlineexamsystem.pojo.dto.ExamPaperQuestionDTO;
@@ -27,12 +27,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 试卷服务实现类
+ */
 @Service
 @RequiredArgsConstructor
 public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper> implements ExamPaperService {
     private final ExamPaperQuestionService examPaperQuestionService;
     private final QuestionService questionService;
 
+    /**
+     * 保存试卷（含题目关联）
+     *
+     * @param dto 试卷保存参数对象
+     */
     @Override
     @Transactional
     public void savePaper(ExamPaperSaveDTO dto) {
@@ -46,6 +54,11 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         savePaperQuestions(paper.getId(), dto.getQuestions());
     }
 
+    /**
+     * 修改试卷（先删除旧题目关联，再重建）
+     *
+     * @param dto 试卷保存参数对象
+     */
     @Override
     @Transactional
     public void updatePaper(ExamPaperSaveDTO dto) {
@@ -60,6 +73,12 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         savePaperQuestions(dto.getId(), dto.getQuestions());
     }
 
+    /**
+     * 查询试卷详情（含题目列表）
+     *
+     * @param id 试卷id
+     * @return ExamPaperDetailVO
+     */
     @Override
     public ExamPaperDetailVO detail(Integer id) {
         ExamPaper paper = this.getById(id);
@@ -84,6 +103,11 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         return detail;
     }
 
+    /**
+     * 按题型难度配置自动组卷
+     *
+     * @param dto 自动组卷参数对象
+     */
     @Override
     @Transactional
     public void autoGenerate(AutoGeneratePaperDTO dto) {
@@ -137,6 +161,12 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         savePaperQuestions(paper.getId(), selected);
     }
 
+    /**
+     * 批量保存试卷题目关联
+     *
+     * @param paperId   试卷id
+     * @param questions 题目关联参数列表
+     */
     private void savePaperQuestions(Integer paperId, List<ExamPaperQuestionDTO> questions) {
         if (questions == null || questions.isEmpty()) {
             throw new BusinessException("试卷至少需要一道题目");
@@ -152,6 +182,12 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         examPaperQuestionService.saveBatch(relations);
     }
 
+    /**
+     * 规范化最大考试次数，空或小于 1 时默认为 1
+     *
+     * @param maxAttempts 原始考试次数
+     * @return 规范化后的考试次数
+     */
     private Integer normalizeMaxAttempts(Integer maxAttempts) {
         return maxAttempts == null || maxAttempts < 1 ? 1 : maxAttempts;
     }

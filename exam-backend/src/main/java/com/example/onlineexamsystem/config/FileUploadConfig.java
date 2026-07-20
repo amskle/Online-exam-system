@@ -18,6 +18,9 @@ public class FileUploadConfig implements WebMvcConfigurer {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
+    /**
+     * 初始化上传目录（启动时创建）
+     */
     @PostConstruct
     public void init() {
         String projectRoot = System.getProperty("user.dir");
@@ -29,6 +32,9 @@ public class FileUploadConfig implements WebMvcConfigurer {
         }
     }
 
+    /**
+     * 配置静态资源映射（文件上传访问）
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String projectRoot = System.getProperty("user.dir");

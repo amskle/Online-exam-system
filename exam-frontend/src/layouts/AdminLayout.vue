@@ -41,6 +41,9 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- 智能学习伙伴 -->
+    <FloatingTutor />
   </el-container>
 </template>
 
@@ -59,6 +62,7 @@ import {
 } from '@element-plus/icons-vue'
 import { clearAllAuth, getRole, RoleEnum } from '@/utils/localStorage'
 import UserProfileMenu from '@/components/UserProfileMenu.vue'
+import FloatingTutor from '@/components/FloatingTutor.vue'
 
 const route = useRoute()
 const router = useRouter()

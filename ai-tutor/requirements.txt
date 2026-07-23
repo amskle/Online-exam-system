@@ -1,0 +1,30 @@
+# FastAPI + 异步支持
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+
+# Pydantic 数据模型
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# JWT
+pyjwt==2.10.1
+
+# LangGraph + LangChain
+langgraph==0.2.60
+langchain==0.3.14
+langchain-community==0.3.14
+
+# RAG — 文档解析
+pdfplumber==0.11.4
+python-docx==1.1.2
+
+# RAG — 向量检索 (纯 Python: numpy + SQLite，零编译)
+numpy==2.2.0
+
+# RAG — Embedding (国内模型 SDK)
+openai==1.58.1  # 兼容通义千问 / DeepSeek 等 OpenAI-compatible API
+
+# 工具
+python-dotenv==1.0.1
+python-multipart==0.0.19

@@ -18,6 +18,9 @@
     <el-main class="student-main">
       <router-view />
     </el-main>
+
+    <!-- 智能学习伙伴 -->
+    <FloatingTutor />
   </el-container>
 </template>
 
@@ -25,6 +28,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import UserProfileMenu from '@/components/UserProfileMenu.vue'
+import FloatingTutor from '@/components/FloatingTutor.vue'
 
 const route = useRoute()
 const activePath = computed(() => route.path)

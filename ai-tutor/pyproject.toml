@@ -1,0 +1,10 @@
+[project]
+name = "ai-tutor"
+version = "0.1.0"
+description = "智能学习伙伴微服务 — 基于 RAG + LangGraph 的教师出题 & 学生答疑智能体"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

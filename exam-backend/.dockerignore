@@ -1,0 +1,25 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# Runtime
+file/
+*.log
+*.err
+tmp/
+
+# Environment
+.env
+.env.local

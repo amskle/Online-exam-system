@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+*.whl
+
+# Virtual env
+venv/
+.venv/
+
+# Data (在 volume 中挂载，不进镜像)
+chroma_store/
+chat_sessions.db
+vector_store.db
+upload_temp_*
+
+# Environment
+.env
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+
+# Tests
+tests/

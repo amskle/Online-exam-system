@@ -3,8 +3,8 @@ spring:
     name: Online-exam-system
   datasource:
     url: jdbc:mysql://localhost:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-    username: root
-    password: 327510
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:327510}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # 连接池配置（HikariCP，Spring Boot 默认）
@@ -35,7 +35,7 @@ spring:
   mail:
     host: smtp.qq.com
     port: 465
-    username: 2061133513@qq.com
+    username: ${MAIL_USERNAME:2061133513@qq.com}
     password: ${MAIL_AUTH_CODE:}
     properties:
       mail:
@@ -61,3 +61,7 @@ auth:
   email-daily-limit: 10
   trusted-device-ttl: 7d
   trusted-device-secure-cookie: false
+
+# JWT — 生产环境通过环境变量覆盖
+jwt:
+  secret: ${JWT_SECRET:t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3}

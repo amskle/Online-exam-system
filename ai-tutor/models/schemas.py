@@ -62,6 +62,20 @@ class TeacherRecommendData(BaseModel):
     suggestion: dict
 
 
+class TeacherChatRequest(BaseModel):
+    """教师知识库对话请求"""
+    message: str = Field(..., description="用户提问内容")
+    subject_name: Optional[str] = Field(default=None, description="限定检索的科目范围")
+    session_id: Optional[str] = Field(default=None, description="对话会话ID，不传则新建")
+
+
+class TeacherChatData(BaseModel):
+    """教师知识库对话响应"""
+    reply: str = Field(..., description="基于知识库的回复")
+    session_id: str = Field(..., description="本次对话会话ID")
+    sources: list[dict] = Field(default_factory=list, description="引用的知识库条目")
+
+
 # ═══════════════════════════════════════════════════
 #  学生智能体
 # ═══════════════════════════════════════════════════
@@ -114,6 +128,30 @@ class DocumentUploadData(BaseModel):
     subject_name: str
     chunk_count: int
     message: str
+
+
+# ═══════════════════════════════════════════════════
+#  会话历史
+# ═══════════════════════════════════════════════════
+
+class SessionListItem(BaseModel):
+    """会话列表条目"""
+    session_id: str
+    agent_mode: str
+    title: str
+    created_at: float
+    updated_at: float
+    preview: str = ""
+
+
+class SessionDetail(BaseModel):
+    """单个会话完整数据"""
+    session_id: str
+    agent_mode: str
+    title: str
+    created_at: float
+    updated_at: float
+    messages: list[dict] = Field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════

@@ -25,13 +25,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, provide, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import UserProfileMenu from '@/components/UserProfileMenu.vue'
 import FloatingTutor from '@/components/FloatingTutor.vue'
 
 const route = useRoute()
 const activePath = computed(() => route.path)
+
+/** 共享给 FloatingTutor 和子页面的答疑上下文 */
+export interface TutorQuestionContext {
+  questionId: number | null
+  questionContent: string
+  studentAnswer: string
+}
+const tutorContext = reactive<TutorQuestionContext & { triggerOpen: number }>({
+  questionId: null,
+  questionContent: '',
+  studentAnswer: '',
+  triggerOpen: 0, // 每次递增触发 FloatingTutor 响应
+})
+provide('tutorContext', tutorContext)
 </script>
 
 <style scoped>

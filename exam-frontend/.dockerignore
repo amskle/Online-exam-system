@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Dev files
+*.log
+*.err
+.env.development
+.env.local
+
+# IDE
+.idea/
+.vscode/
+.agents/
+
+# Git
+.git/
+.gitignore
+
+# Auto-generated
+auto-imports.d.ts
+components.d.ts

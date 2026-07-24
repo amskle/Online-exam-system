@@ -1,3 +1,8 @@
+### Python ###
+__pycache__/
+*.pyc
+
+### Maven ###
 exam-backend/target/
 .mvn/wrapper/maven-wrapper.jar
 !**/exam-backend/src/main/**/target/

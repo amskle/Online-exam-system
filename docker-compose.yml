@@ -1,0 +1,109 @@
+# ============================================================
+# 在线考试系统 + 智能学习伙伴 — Docker Compose
+# ============================================================
+# 启动: docker compose --env-file .env.docker up --build
+# 停止: docker compose down
+# 数据持久化在 Docker volumes 中，down 不会丢失；down -v 会清除全部数据
+
+services:
+  # ── MySQL 8.0 ──
+  mysql:
+    image: mysql:8.0
+    container_name: exam-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: exam
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis 7 ──
+  redis:
+    image: redis:7-alpine
+    container_name: exam-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Spring Boot 考试系统后端 ──
+  backend:
+    build:
+      context: ./exam-backend
+      dockerfile: Dockerfile
+    container_name: exam-backend
+    restart: unless-stopped
+    environment:
+      # 覆盖 application.yml 中的 localhost
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATA_REDIS_HOST: redis
+      # 数据库凭据
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      # JWT 密钥（必须与 ai-tutor 一致）
+      JWT_SECRET: ${JWT_SECRET:-}
+      # 邮件授权码（从 .env.docker 注入）
+      MAIL_AUTH_CODE: ${MAIL_AUTH_CODE:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_files:/app/file
+
+  # ── FastAPI 智能学习伙伴 ──
+  ai-tutor:
+    build:
+      context: ./ai-tutor
+      dockerfile: Dockerfile
+    container_name: exam-ai-tutor
+    restart: unless-stopped
+    environment:
+      EXAM_BACKEND_URL: http://backend:8077
+      # LLM API（从 .env.docker 注入，不硬编码到镜像）
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      # JWT 密钥（必须与 backend 一致）
+      JWT_SECRET: ${JWT_SECRET:-}
+      # 数据目录
+      VECTOR_DB_PATH: /app/data/chroma_store
+      SESSION_DB_PATH: /app/data/chat_sessions.db
+    depends_on:
+      - backend
+    volumes:
+      - ai_data:/app/data
+
+  # ── Nginx 前端 ──
+  nginx:
+    build:
+      context: ./exam-frontend
+      dockerfile: Dockerfile
+    container_name: exam-frontend
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      - backend
+      - ai-tutor
+
+# ── 持久化卷 ──
+volumes:
+  mysql_data:
+  redis_data:
+  backend_files:
+  ai_data:

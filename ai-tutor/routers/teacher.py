@@ -7,15 +7,19 @@ from models.schemas import (
     ApiResponse,
     TeacherGenerateRequest,
     TeacherRecommendRequest,
+    TeacherChatRequest,
+    TeacherChatData,
     DocumentUploadData,
 )
 from agents.common import chat_text, TYPE_NAMES, DIFF_NAMES
 from agents.teacher_agent import teacher_graph
 from utils.jwt_util import verify_token, ROLE_TEACHER, ROLE_ADMIN
 from utils.exam_bridge import exam_bridge
+from utils.session_store import session_store
 from rag.document_loader import DocumentLoader
 from rag.embeddings import embedding_service
 from rag.vector_store import vector_store
+from rag.retriever import retriever
 import uuid
 import json
 import os
@@ -104,6 +108,7 @@ async def generate_questions(
     完整走 LangGraph 流水线：需求理解 → 检索 → 分批生成 → 质检 → 入库。
     """
     token, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
 
     state = {
         "subject_id": req.subject_id,
@@ -141,6 +146,41 @@ async def generate_questions(
     saved_ids = result.get("saved_ids", [])
     warnings = result.get("warnings", [])
 
+    # ── 保存到历史会话 ──
+    type_name = TYPE_NAMES.get(req.question_type, "题目")
+    diff_name = DIFF_NAMES.get(req.difficulty, "中等")
+    session_title = f"{req.subject_name} · {type_name} · {diff_name} x{req.count}"
+    sid = session_store.new_session_id()
+    session_store.ensure_session(sid, user_id, 'teacher', session_title)
+
+    user_msg = f"为「{req.subject_name}」生成{req.count}道{type_name}（难度：{diff_name}）"
+    if req.extra_requirement:
+        user_msg += f"\n额外要求：{req.extra_requirement}"
+    session_store.append(sid, user_id, "user", user_msg)
+
+    assistant_msg = f"✅ 已生成并入库 {len(saved_ids)} 道题目！\n\n"
+    question_list = questions[:len(saved_ids)] if len(questions) >= len(saved_ids) else questions
+    for i, q in enumerate(question_list):
+        q_content = q.get('content', '') if isinstance(q, dict) else getattr(q, 'content', '')
+        q_answer = q.get('answer', '') if isinstance(q, dict) else getattr(q, 'answer', '')
+        q_analysis = q.get('analysis', '') if isinstance(q, dict) else getattr(q, 'analysis', '')
+        q_opts = q.get('options', None) if isinstance(q, dict) else getattr(q, 'options', None)
+        idx = saved_ids[i] if i < len(saved_ids) else '?'
+        assistant_msg += f"📝 第{i+1}题 (ID:{idx})\n{q_content}\n"
+        if q_opts:
+            try:
+                opt_list = json.loads(q_opts) if isinstance(q_opts, str) else q_opts
+                if isinstance(opt_list, list):
+                    for j, o in enumerate(opt_list):
+                        assistant_msg += f"  {chr(65+j)}. {o}\n"
+            except (json.JSONDecodeError, TypeError):
+                assistant_msg += f"  选项: {q_opts}\n"
+        assistant_msg += f"  答案: {q_answer}\n  解析: {q_analysis}\n\n"
+
+    if failed_list := result.get("failed_questions", []):
+        assistant_msg += f"\n⚠️ {len(failed_list)} 道题入库失败"
+    session_store.append(sid, user_id, "assistant", assistant_msg)
+
     return ApiResponse(
         code=200,
         message=f"成功生成并入库 {len(saved_ids)} 道题目",
@@ -149,7 +189,88 @@ async def generate_questions(
             "saved_ids": saved_ids,
             "failed_questions": result.get("failed_questions", []),
             "warnings": warnings,
+            "session_id": sid,
         },
+    )
+
+
+@router.post("/chat", response_model=ApiResponse)
+async def chat(
+    req: TeacherChatRequest,
+    auth=Depends(require_teacher_or_admin),
+):
+    """
+    教师知识库对话 — 基于已上传文档进行自由问答。
+    语义检索知识库 → 构建上下文 → LLM 回答，不走出题流水线。
+    """
+    token, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+
+    # ── 检索相关文档 ──
+    try:
+        docs = await retriever.retrieve(
+            query=req.message,
+            collection="teacher",
+            top_k=5,
+            subject_filter=req.subject_name or None,
+        )
+    except Exception as e:
+        logger.warning("知识库检索失败: %s", e)
+        docs = []
+
+    # ── 构建提示词 ──
+    if docs:
+        kb_context = "\n\n---\n".join(
+            f"【来源：{d['metadata'].get('source_file','')} 第{d['metadata'].get('question_index','?')}题】\n{d['document']}"
+            for d in docs
+        )
+        prompt = f"""你是一位学科助教，请根据以下知识库内容回答用户的问题。如果知识库中有相关内容，请准确引用；如果知识库内容不足以回答，请如实告知。
+
+知识库内容：
+{kb_context}
+
+用户问题：{req.message}
+
+请用中文回答，并尽量标注信息来源（文件名或题号）。"""
+    else:
+        prompt = f"""你是一位学科助教。用户上传过知识库文档，但目前知识库中没有检索到与以下问题相关的内容。
+
+用户问题：{req.message}
+
+请如实告知用户知识库中没有匹配的内容，并建议用户尝试上传相关文档或换个问题。"""
+
+    # ── LLM 回答 ──
+    try:
+        reply = await chat_text(prompt, temperature=0.5, max_tokens=1024)
+    except Exception as e:
+        logger.exception("教师对话 LLM 调用失败")
+        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e!s}")
+
+    # ── 保存会话历史 ──
+    sid = req.session_id or session_store.new_session_id()
+    title = req.message[:50]
+    session_store.ensure_session(sid, user_id, 'teacher', title)
+    session_store.append(sid, user_id, "user", req.message)
+    session_store.append(sid, user_id, "assistant", reply)
+
+    # ── 构建引用来源 ──
+    sources = [
+        {
+            "source_file": d["metadata"].get("source_file", ""),
+            "question_index": d["metadata"].get("question_index", 0),
+            "preview": d["document"][:120],
+        }
+        for d in docs
+    ]
+
+    return ApiResponse(
+        code=200,
+        message="成功",
+        data=TeacherChatData(
+            reply=reply,
+            session_id=sid,
+            sources=sources,
+        ),
     )
 
 
@@ -209,6 +330,28 @@ async def upload_document(
             os.remove(tmp_path)
 
 
+@router.delete("/knowledge", response_model=ApiResponse)
+async def clear_knowledge_base(auth=Depends(require_teacher_or_admin)):
+    """
+    清空教师/学生知识库（ChromaDB 两个 collection 全部删除并重建）。
+    用于重新上传文档前清除旧数据。
+    """
+    try:
+        before_t = len(vector_store.get_all_documents("teacher"))
+        before_s = len(vector_store.get_all_documents("student"))
+        vector_store.clear_teacher()
+        vector_store.clear_student()
+        logger.info("知识库已清空（教师库 %d 条，学生库 %d 条）", before_t, before_s)
+        return ApiResponse(
+            code=200,
+            message=f"知识库已清空",
+            data={"teacher_deleted": before_t, "student_deleted": before_s},
+        )
+    except Exception as e:
+        logger.exception("清空知识库失败")
+        raise HTTPException(status_code=500, detail=f"清空知识库失败: {e!s}")
+
+
 def _strip_answer(text: str) -> str:
     """从题目文本中剥离答案信息，用于学生库"""
     import re
@@ -216,3 +359,35 @@ def _strip_answer(text: str) -> str:
     text = re.sub(r'正确答案[：:]\s*[^\n]+', '', text)
     text = re.sub(r'Answer[：:]\s*[^\n]+', '', text, flags=re.IGNORECASE)
     return text.strip()
+
+
+# ── 会话历史 ──
+
+
+@router.get("/sessions", response_model=ApiResponse)
+async def list_teacher_sessions(auth=Depends(require_teacher_or_admin)):
+    """列出当前教师的出题历史会话，按最近更新时间倒序"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    sessions = session_store.list_sessions(user_id, agent_mode='teacher')
+    return ApiResponse(code=200, message="成功", data=sessions)
+
+
+@router.delete("/sessions/{session_id}", response_model=ApiResponse)
+async def delete_teacher_session(session_id: str, auth=Depends(require_teacher_or_admin)):
+    """删除指定出题历史会话"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    session_store.delete_session(session_id, user_id)
+    return ApiResponse(code=200, message="会话已删除", data={"session_id": session_id})
+
+
+@router.get("/sessions/{session_id}", response_model=ApiResponse)
+async def get_teacher_session(session_id: str, auth=Depends(require_teacher_or_admin)):
+    """获取单个出题会话的完整记录"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    session = session_store.get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return ApiResponse(code=200, message="成功", data=session)

@@ -97,8 +97,8 @@ Online-exam-system/
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-    username: root
-    password: 327510
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
 ```
 
 首次运行前创建数据库：

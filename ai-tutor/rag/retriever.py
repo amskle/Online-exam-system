@@ -1,7 +1,6 @@
 """检索器 — 语义检索（API） + 关键词后备（纯本地）"""
 import logging
 import re
-import sqlite3
 from typing import Literal
 
 from rag.embeddings import embedding_service
@@ -39,9 +38,17 @@ class Retriever:
             q_emb = await embedding_service.embed_one(query)
             if q_emb:
                 if collection == "teacher":
-                    return vector_store.search_teacher(q_emb, top_k=k, subject_filter=subject_filter)
+                    docs = vector_store.search_teacher(q_emb, top_k=k, subject_filter=subject_filter)
                 else:
-                    return vector_store.search_student(q_emb, top_k=k, subject_filter=subject_filter)
+                    docs = vector_store.search_student(q_emb, top_k=k, subject_filter=subject_filter)
+                # 如果 subject filter 无结果，回退到无 filter 搜索
+                if not docs and subject_filter:
+                    logger.info("subject_filter='%s' 无结果，回退到全局搜索", subject_filter)
+                    if collection == "teacher":
+                        docs = vector_store.search_teacher(q_emb, top_k=k)
+                    else:
+                        docs = vector_store.search_student(q_emb, top_k=k)
+                return docs
         except Exception as e:
             logger.warning("语义检索失败，降级到关键词匹配: %s", e)
 
@@ -55,42 +62,28 @@ class Retriever:
         top_k: int,
         subject_filter: str | None,
     ) -> list[dict]:
-        """纯本地关键词检索，不依赖任何外部 API"""
-        table = "teacher_kb" if collection == "teacher" else "student_kb"
-        with sqlite3.connect(settings.vector_db_path) as conn:
-            if subject_filter:
-                rows = conn.execute(
-                    f"SELECT id, text, subject, source_file, question_index FROM {table} WHERE subject = ? LIMIT 500",
-                    (subject_filter,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"SELECT id, text, subject, source_file, question_index FROM {table} LIMIT 500"
-                ).fetchall()
+        """纯本地关键词检索，通过 ChromaDB get() 获取全量文档后评分"""
+        all_docs = vector_store.get_all_documents(collection)
 
-        if not rows:
+        if not all_docs:
             return []
 
-        if len(rows) >= 500:
+        if len(all_docs) >= 1000:
             logger.warning(
-                "关键词检索在表 %s 的 %d 条记录中被 LIMIT 截断，召回范围受限",
-                table, len(rows),
+                "关键词检索在 %s 的 %d 条记录中性能下降，建议扩充语义检索覆盖",
+                collection, len(all_docs),
             )
 
+        # 过滤 subject
+        if subject_filter:
+            all_docs = [d for d in all_docs if d.get("metadata", {}).get("subject") == subject_filter]
+
         scored = []
-        for row in rows:
-            score = _keyword_score(query, row[1])
+        for doc in all_docs:
+            score = _keyword_score(query, doc["document"])
             if score > 0:
-                scored.append((score, {
-                    "id": row[0],
-                    "document": row[1],
-                    "metadata": {
-                        "subject": row[2],
-                        "source_file": row[3],
-                        "question_index": row[4],
-                    },
-                    "distance": 1.0 - score,
-                }))
+                doc["distance"] = 1.0 - score
+                scored.append((score, doc))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item[1] for item in scored[:top_k]]

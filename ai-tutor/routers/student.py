@@ -1,7 +1,10 @@
 """学生智能体 API 路由 — 答疑、推荐、状态查询、会话管理"""
+import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import StreamingResponse
 
 from models.schemas import (
     ApiResponse,
@@ -14,7 +17,6 @@ from utils.jwt_util import verify_token, get_user_id, ROLE_STUDENT
 from utils.exam_bridge import exam_bridge
 from utils.session_store import session_store
 from config.settings import get_settings
-import json
 
 router = APIRouter()
 settings = get_settings()
@@ -130,6 +132,7 @@ async def ask_question(
 
     # 会话管理
     sid = req.session_id or session_store.new_session_id()
+    session_store.ensure_session(sid, user_id, 'student', req.message[:50])
     history = session_store.history(sid, user_id)
 
     state = {
@@ -177,6 +180,129 @@ async def ask_question(
     )
 
 
+@router.post("/ask/stream")
+async def ask_question_stream(
+    req: StudentAskRequest,
+    auth=Depends(require_student),
+):
+    """
+    学生答疑 — SSE 流式版。
+    使用 LangGraph astream(updates) 逐节点推送进度和 LLM token，提供实时打字体验。
+    """
+    token, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+
+    # 考试中禁止使用
+    active_exam = await exam_bridge.get_active_exam(token)
+    if active_exam:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'error', 'message': '考试期间我不能帮你哦，请专心完成考试！加油💪'})}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    # 会话管理
+    sid = req.session_id or session_store.new_session_id()
+    session_store.ensure_session(sid, user_id, 'student', req.message[:50])
+    history = session_store.history(sid, user_id)
+
+    state = {
+        "question_id": req.question_id,
+        "question_content": req.question_content,
+        "student_answer": req.student_answer or "",
+        "correct_answer": "",
+        "message": req.message,
+        "conversation_history": history,
+        "token": token,
+        "weakness_analysis": "",
+        "knowledge_context": "",
+        "socratic_plan": "",
+        "draft_reply": "",
+        "final_reply": "",
+        "hints": [],
+        "related_concepts": [],
+        "contains_answer": False,
+        "warnings": [],
+        "fatal_error": "",
+    }
+
+    async def event_generator():
+        status_map = {
+            "load_context": "正在加载题目上下文…",
+            "understand": "正在分析你的薄弱点…",
+            "retrieve": "正在检索相关知识点…",
+            "plan": "正在设计引导方案…",
+            "generate": "正在生成回复…",
+            "check": "正在检查答案安全性…",
+        }
+        draft_reply = ""
+        final_reply = ""
+
+        try:
+            async for chunk in student_graph.astream(state, stream_mode="updates"):
+                for node_name, node_output in chunk.items():
+                    # 推送节点状态
+                    status_text = status_map.get(node_name)
+                    if status_text:
+                        yield f"data: {json.dumps({'type': 'status', 'text': status_text})}\n\n"
+
+                    # generate 节点完成后，模拟逐字流式输出
+                    if node_name == "generate":
+                        draft_reply = node_output.get("draft_reply", "")
+                        if draft_reply:
+                            # 按字符分组发送，模拟打字效果（中文每字符、英文每词）
+                            buffer = ""
+                            for ch in draft_reply:
+                                buffer += ch
+                                # 中文/标点逐字发送，英文单词按空格发送
+                                if ch in "，。！？；：、\n" or (ch == " " and len(buffer) > 1):
+                                    yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
+                                    await asyncio.sleep(0.01)  # 微小延迟，给前端渲染时间
+                                    buffer = ""
+                            if buffer:
+                                yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
+
+                    # check 节点完成后，获取最终回复
+                    if node_name == "check":
+                        final_reply = node_output.get("final_reply", "")
+                        hints = node_output.get("hints", [])
+                        concepts = node_output.get("related_concepts", [])
+                        contains_answer = node_output.get("contains_answer", False)
+
+                        # 如果泄露检测重写了回复，推送替换事件
+                        if final_reply and final_reply != draft_reply:
+                            yield f"data: {json.dumps({'type': 'rewrite', 'text': final_reply})}\n\n"
+
+                        yield f"data: {json.dumps({
+                            'type': 'final',
+                            'reply': final_reply,
+                            'hints': hints,
+                            'related_concepts': concepts,
+                            'session_id': sid,
+                            'contains_answer': contains_answer,
+                        })}\n\n"
+
+            # 持久化本轮对话
+            session_store.append(sid, user_id, "user", req.message)
+            session_store.append(sid, user_id, "assistant", final_reply)
+
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.exception("流式答疑执行异常")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'智能体执行失败: {e!s}'})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/session/clear", response_model=ApiResponse)
 async def clear_session(
     req: SessionClearRequest,
@@ -187,3 +313,32 @@ async def clear_session(
     user_id = claims.get("sub") or claims.get("userId") or 0
     session_store.clear(req.session_id, user_id)
     return ApiResponse(code=200, message="会话已清空", data={"session_id": req.session_id})
+
+
+@router.get("/sessions", response_model=ApiResponse)
+async def list_student_sessions(auth=Depends(require_student)):
+    """列出当前学生的答疑会话历史，按最近更新时间倒序"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    sessions = session_store.list_sessions(user_id, agent_mode='student')
+    return ApiResponse(code=200, message="成功", data=sessions)
+
+
+@router.delete("/sessions/{session_id}", response_model=ApiResponse)
+async def delete_student_session(session_id: str, auth=Depends(require_student)):
+    """删除指定会话及其所有消息"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    session_store.delete_session(session_id, user_id)
+    return ApiResponse(code=200, message="会话已删除", data={"session_id": session_id})
+
+
+@router.get("/sessions/{session_id}", response_model=ApiResponse)
+async def get_student_session(session_id: str, auth=Depends(require_student)):
+    """获取单个会话的完整消息历史"""
+    _, claims = auth
+    user_id = claims.get("sub") or claims.get("userId") or 0
+    session = session_store.get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return ApiResponse(code=200, message="成功", data=session)

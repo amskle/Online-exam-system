@@ -1,3 +1,23 @@
+CREATE TABLE IF NOT EXISTS user (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  account VARCHAR(50) NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  avatar VARCHAR(500),
+  username VARCHAR(50),
+  gender TINYINT COMMENT '1男 2女',
+  phone VARCHAR(20),
+  email VARCHAR(254) COMMENT '邮箱',
+  email_verify_time DATETIME COMMENT '邮箱验证时间',
+  login_status TINYINT NOT NULL DEFAULT 0 COMMENT '0正常 1封号',
+  role TINYINT NOT NULL COMMENT '1学生 2教师 3管理员',
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE INDEX uk_user_account (account)
+);
+
+-- 默认管理员（账号 admin，密码 123456）
+INSERT IGNORE INTO user (id, account, password, username, role, email, login_status, create_time)
+VALUES (1, 'admin', '$2b$10$P2rqMDKks/zYfWA.i4f15.3NHkX2tdgECbcFdDNS6VWFK38fiOPVq', '管理员', 3, 'admin@example.com', 0, NOW());
+
 CREATE TABLE IF NOT EXISTS subject (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(50) NOT NULL,

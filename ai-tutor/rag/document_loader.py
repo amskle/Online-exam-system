@@ -27,6 +27,26 @@ _QUESTION_NUMBER_RE = re.compile(
     re.MULTILINE,
 )
 
+# ── PDF 页眉页脚噪音 ──
+_PAGE_NOISE_RES = [
+    re.compile(r'第\s*\d+\s*[／/]\s*\d+\s*页'),       # 第 1／18页
+    re.compile(r'^\d{1,3}\s*$', re.MULTILINE),         # 孤立页码数字
+    re.compile(r'^\s*[-—}》\s]+\s*$', re.MULTILINE),   # 竖排页眉残余短线
+]
+
+# ── OCR/字体常见误识别：题号 1. 被渲染为 l. / I.  11. 被渲染为 1 1. / I 3. ──
+_OCR_FIXES = [
+    (re.compile(r'(?:^|\n)\s*[lI]\.\s*(?=[^\d])'), '\n1. '),    # l. / I. → 1.
+    (re.compile(r'(?:^|\n)\s*[lI]\s+(\d)\s*\.'), r'\n1\1.'),    # I 3. → 13.  l 1. → 11.
+    (re.compile(r'(?:^|\n)\s*(\d)\s+(\d)\s*\.'), r'\n\1\2.'),   # 1 1. → 11.
+]
+
+# 竖排文字被拆成逐字符行：连续 ≥5 行的单字符 → 整块移除
+_VERTICAL_CHAR_BLOCK = re.compile(
+    r'(?:^[^\n]{1,3}\n){5,}',
+    re.MULTILINE,
+)
+
 
 def split_by_question_number(text: str) -> list[str]:
     """按题号将文本拆分为多个题目块"""
@@ -40,7 +60,31 @@ def split_by_question_number(text: str) -> list[str]:
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-    return chunks
+
+    # ── 合并假分割块：极短块（<30字且无中文）可能是选项被误识别为题号 ──
+    merged = []
+    for ch in chunks:
+        has_cjk = bool(re.search(r'[一-鿿]', ch))
+        if not has_cjk and len(ch) < 30 and merged:
+            merged[-1] = merged[-1] + '\n' + ch
+        else:
+            merged.append(ch)
+    return merged
+
+
+def _clean_pdf_text(text: str) -> str:
+    """清洗 PDF 提取文本中的页眉页脚噪音 + OCR 纠错"""
+    # OCR/字体误识别校正
+    for pat, repl in _OCR_FIXES:
+        text = pat.sub(repl, text)
+    # 移除竖排文字块（逐字符行）
+    text = _VERTICAL_CHAR_BLOCK.sub('\n', text)
+    # 移除页码和分隔线
+    for pat in _PAGE_NOISE_RES:
+        text = pat.sub('', text)
+    # 合并多余空行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
 class DocumentLoader:
@@ -48,15 +92,16 @@ class DocumentLoader:
 
     @staticmethod
     def load_pdf(file_path: str) -> str:
-        """加载 PDF，提取纯文本"""
-        import pdfplumber
+        """加载 PDF，提取纯文本（使用 pymupdf，中文支持更好）"""
+        import fitz
         full_text = []
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
+        with fitz.open(file_path) as doc:
+            for page in doc:
+                text = page.get_text()
                 if text:
                     full_text.append(text)
-        return "\n\n".join(full_text)
+        raw = "\n".join(full_text)
+        return _clean_pdf_text(raw)
 
     @staticmethod
     def load_txt(file_path: str) -> str:

@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main, codex/agent]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── 后端：Spring Boot 编译 + 测试 + JaCoCo ──
+  backend:
+    name: Backend (Java 21)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exam-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compile
+        run: mvn -q -DskipTests compile
+
+      - name: Test
+        run: mvn test
+
+      - name: JaCoCo Report
+        if: always()
+        run: |
+          echo "## Backend Coverage" >> $GITHUB_STEP_SUMMARY
+          if [ -f target/site/jacoco/index.html ]; then
+            grep -oP 'Total.*?ctr2">\K[0-9]+%' target/site/jacoco/index.html | head -1 >> $GITHUB_STEP_SUMMARY || true
+          fi
+
+  # ── AI Tutor：Python 语法检查 + 测试 ──
+  ai-tutor:
+    name: AI Tutor (Python 3.12)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-tutor
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m compileall -q agents/ routers/ utils/ eval/ models/ config/ -x '.*__pycache__.*' 2>&1
+
+      - name: Run tests (skip integration)
+        run: python -m pytest tests/ -v -m "not integration"
+
+  # ── 前端：TypeScript 类型检查 + 构建 ──
+  frontend:
+    name: Frontend (Vue 3)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exam-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: exam-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx vue-tsc --noEmit
+
+      - name: Build
+        run: npm run build

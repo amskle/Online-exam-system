@@ -81,3 +81,6 @@ pytest tests/test_api.py::TestHealthCheck -v  # run a single test class
   - `session_history_limit: 12` — conversation turns injected into the agent prompt
   - `session_max_messages: 50` — max messages retained per session in SQLite
   - `retrieval_top_k: 5` — number of RAG chunks retrieved per query
+
+
+

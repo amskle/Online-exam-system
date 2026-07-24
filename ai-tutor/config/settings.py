@@ -20,18 +20,19 @@ class Settings(BaseSettings):
     llm_api_base: str = "https://api.deepseek.com/v1"
     llm_api_key: str = "your-api-key-here"
     llm_model: str = "deepseek-chat"
-    embedding_api_base: str = "https://api.deepseek.com/v1"
-    embedding_api_key: str = "your-api-key-here"
-    embedding_model: str = "text-embedding-3-small"
+    embedding_api_base: str = "https://api.siliconflow.cn/v1"
+    embedding_api_key: str = "your-embedding-api-key-here"
+    embedding_model: str = "BAAI/bge-large-zh-v1.5"
 
-    # ── SQLite 存储 ──
-    vector_db_path: str = "./vector_store.db"
+    # ── ChromaDB 向量存储 ──
+    vector_db_path: str = "./chroma_store"
     session_db_path: str = "./chat_sessions.db"
 
     # ── RAG ──
     chunk_size: int = 800
     chunk_overlap: int = 100
     retrieval_top_k: int = 5
+    embedding_max_chars: int = 500  # BAAI/bge-large-zh-v1.5 上限 512 tokens，中文字符按 1 token/字截断
 
     # ── Agent ──
     llm_timeout: float = 60.0
@@ -39,6 +40,10 @@ class Settings(BaseSettings):
     generate_max_attempts: int = 4  # 数量不足时的最大补生成轮数
     session_history_limit: int = 12  # 注入 prompt 的对话历史条数
     session_max_messages: int = 50  # 每个会话在库中保留的最大消息数
+
+    # ── 评估 ──
+    eval_sample_count: int = 20  # Ragas 评估采样数
+    eval_llm_temperature: float = 0.0  # 评估 LLM 温度（0=更确定）
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

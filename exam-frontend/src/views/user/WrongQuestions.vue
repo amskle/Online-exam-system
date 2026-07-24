@@ -24,6 +24,7 @@
             <el-tag class="subject-tag" type="info">{{ item.subjectName || '未设置科目' }}</el-tag>
           </div>
           <div class="wrong-actions">
+            <el-button type="primary" size="small" @click="askAiTutor(item)">🤖 AI 答疑</el-button>
             <el-switch
               :model-value="item.mastered"
               active-text="已掌握"
@@ -73,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { studentWrongQuestionDeleteApi, studentWrongQuestionListApi, studentWrongQuestionMasteredApi } from '@/api/student-api'
 import type { WrongQuestion } from '@/types/admin'
@@ -83,6 +84,24 @@ const wrongQuestions = ref<WrongQuestion[]>([])
 const total = ref(0)
 const query = reactive({ mastered: undefined as boolean | undefined })
 const page = reactive({ current: 1, size: 5 })
+
+/** 共享的 Tutor 上下文 — 由 StudentLayout provide，用于触发 AI 答疑 */
+interface TutorCtxInject {
+  questionId: number | null
+  questionContent: string
+  studentAnswer: string
+  triggerOpen: number
+}
+const tutorCtx = inject<TutorCtxInject | null>('tutorContext', null)
+
+/** 点击某道错题的 "AI 答疑" */
+const askAiTutor = (item: WrongQuestion) => {
+  if (!tutorCtx || !item.id) return
+  tutorCtx.questionId = item.id
+  tutorCtx.questionContent = item.content ?? ''
+  tutorCtx.studentAnswer = item.userAnswer ?? ''
+  tutorCtx.triggerOpen++
+}
 
 const loadWrongQuestions = async () => {
   try {

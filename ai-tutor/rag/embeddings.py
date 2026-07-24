@@ -24,10 +24,20 @@ class EmbeddingService:
         self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """批量向量化"""
+        """批量向量化（超过模型上限的文本自动截断）"""
         if not texts:
             return []
-        resp = await self.client.embeddings.create(model=self.model, input=texts)
+        truncated = []
+        for i, t in enumerate(texts):
+            if len(t) > settings.embedding_max_chars:
+                truncated.append(t[:settings.embedding_max_chars])
+                logger.warning(
+                    "文本 #%d 过长 (%d chars)，已截断至 %d chars（模型上限 ~512 tokens）",
+                    i, len(t), settings.embedding_max_chars,
+                )
+            else:
+                truncated.append(t)
+        resp = await self.client.embeddings.create(model=self.model, input=truncated)
         return [d.embedding for d in resp.data]
 
     async def embed_one(self, text: str) -> list[float]:

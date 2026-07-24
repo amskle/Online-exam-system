@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
@@ -12,16 +13,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * JWT 工具类
+ * JWT 工具类 — 密钥通过 ${jwt.secret} 从配置/环境变量注入
  */
 @Component
 public class JwtUtil {
 
-    private static final String SECRET_KEY = "t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3";
+    @Value("${jwt.secret}")
+    private String secretKey;
+
     private static final long EXPIRATION_TIME = 7 * 24 * 60 * 60 * 1000;
 
     private Key getKey() {
-        return Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
+        return Keys.hmacShaKeyFor(secretKey.getBytes());
     }
 
     /**

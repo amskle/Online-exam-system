@@ -27,6 +27,7 @@ exam-frontend/components.d.ts
 .env
 .env.local
 .env.*.local
+.env.docker
 exam-frontend/.env.local
 exam-frontend/.env.*.local
 
@@ -60,3 +61,16 @@ build/
 
 .reasonix/
 .agents/
+reasonix.toml
+
+### AI Tutor ###
+ai-tutor/*.whl
+ai-tutor/*.tar.gz
+ai-tutor/.pytest_cache/
+ai-tutor/vector_store.db
+ai-tutor/chroma_store/
+ai-tutor/chat_sessions.db
+ai-tutor/upload_temp_*
+ai-tutor/__pycache__/
+ai-tutor/**/__pycache__/
+ai-tutor/.env

@@ -28,4 +28,5 @@ openai==1.58.1  # 兼容通义千问 / DeepSeek 等 OpenAI-compatible API
 # 工具
 python-dotenv==1.0.1
 python-multipart==0.0.19
+pytest>=8.0.0
 

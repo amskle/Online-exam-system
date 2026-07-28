@@ -42,7 +42,7 @@ public class EmailController {
     public Result<UserLoginResponseVO> verify(
             @Valid @RequestBody EmailVerifyDTO dto,
             HttpServletResponse servletResponse) {
-        EmailService.VerificationResult result = emailService.verify(dto);
+        EmailService.VerificationResult result = emailService.verify(dto, servletResponse);
         if (result.trustedDeviceToken() != null && result.userId() != null) {
             String cookieName = TRUSTED_DEVICE_COOKIE_PREFIX + result.userId();
             ResponseCookie cookie = ResponseCookie.from(cookieName, result.trustedDeviceToken())

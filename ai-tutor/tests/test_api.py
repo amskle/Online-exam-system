@@ -22,7 +22,7 @@ class TestHealthCheck:
 class TestTeacherRoutes:
     def test_recommend_requires_auth(self):
         r = client.post("/ai/teacher/recommend", json={"subject_name": "Java"})
-        assert r.status_code == 422  # 缺少 Authorization header
+        assert r.status_code == 401  # 缺少 Authorization header → 401（而非 422）
 
     def test_recommend_rejects_invalid_token(self):
         r = client.post(
@@ -42,17 +42,17 @@ class TestTeacherRoutes:
                 "count": 3,
             },
         )
-        assert r.status_code == 422  # 缺少 Authorization header
+        assert r.status_code == 401  # 缺少 Authorization header → 401（而非 422）
 
     def test_upload_requires_auth(self):
         r = client.post("/ai/teacher/upload")
-        assert r.status_code == 422
+        assert r.status_code == 401  # 缺少 Authorization header → 401
 
 
 class TestStudentRoutes:
     def test_status_requires_auth(self):
         r = client.get("/ai/student/status")
-        assert r.status_code == 422
+        assert r.status_code == 401  # 缺少 Authorization header → 401
 
     def test_ask_requires_auth(self):
         r = client.post(
@@ -63,11 +63,11 @@ class TestStudentRoutes:
                 "conversation_history": [],
             },
         )
-        assert r.status_code == 422
+        assert r.status_code == 401  # 缺少 Authorization header → 401
 
     def test_recommend_requires_auth(self):
         r = client.post("/ai/student/recommend")
-        assert r.status_code == 422
+        assert r.status_code == 401  # 缺少 Authorization header → 401
 
 
 class TestStudentAnswerIsolation:

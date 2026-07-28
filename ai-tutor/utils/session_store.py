@@ -46,15 +46,59 @@ class SessionStore:
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id, updated_at DESC)"
             )
             conn.commit()
+            # 自动修复孤立消息（有消息无 session 的数据）
+            self._repair_orphaned_messages(conn)
+
+    def _repair_orphaned_messages(self, conn: sqlite3.Connection):
+        """为有消息但缺少 session 元数据的会话自动补建 session 记录"""
+        orphaned = conn.execute("""
+            SELECT DISTINCT m.session_id, m.user_id, MIN(m.created_at) AS first_ts, MAX(m.created_at) AS last_ts
+            FROM chat_messages m
+            LEFT JOIN sessions s ON m.session_id = s.session_id
+            WHERE s.session_id IS NULL
+            GROUP BY m.session_id
+        """).fetchall()
+        for sid, uid, first_ts, last_ts in orphaned:
+            # 取第一条 user 消息的前 50 字作为标题
+            title_row = conn.execute(
+                "SELECT content FROM chat_messages WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+                (sid,),
+            ).fetchone()
+            title = (title_row[0][:50] if title_row and title_row[0] else "")
+            # 推断 agent_mode：从上下文取默认值
+            conn.execute(
+                "INSERT OR IGNORE INTO sessions (session_id, user_id, agent_mode, title, created_at, updated_at) "
+                "VALUES (?, ?, 'student', ?, ?, ?)",
+                (sid, uid, title, first_ts, last_ts),
+            )
+            logger.info("修复孤立会话: session_id=%s user_id=%s", sid, uid)
+        if orphaned:
+            conn.commit()
+            logger.info("已为 %d 个孤立消息补建 session 记录", len(orphaned))
 
     def new_session_id(self) -> str:
         return uuid.uuid4().hex
 
     def append(self, session_id: str, user_id: int, role: str, content: str):
+        now = time.time()
         with sqlite3.connect(self.db_path) as conn:
+            # 安全网：如果 session 不存在则自动创建（防止孤立消息）
+            existing = conn.execute(
+                "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+            if not existing:
+                title = content[:50] if role == "user" else ""
+                agent_mode = "student"  # 默认；teacher 端会在 ensure_session 里覆盖
+                conn.execute(
+                    "INSERT OR IGNORE INTO sessions (session_id, user_id, agent_mode, title, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (session_id, user_id, agent_mode, title, now, now),
+                )
+                logger.warning("append 触发了 session 自动创建: session_id=%s user_id=%s", session_id, user_id)
+
             conn.execute(
                 "INSERT INTO chat_messages (session_id, user_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-                (session_id, user_id, role, content, time.time()),
+                (session_id, user_id, role, content, now),
             )
             # 只保留每个会话最近 N 条，防止无限增长
             conn.execute(
@@ -68,8 +112,12 @@ class SessionStore:
                 """,
                 (session_id, user_id, session_id, user_id, settings.session_max_messages),
             )
+            # 更新 session 时间戳
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                (now, session_id),
+            )
             conn.commit()
-        self.touch_session(session_id)
 
     def history(self, session_id: str, user_id: int, limit: int | None = None) -> list[dict]:
         """取最近 limit 条历史，按时间正序返回"""
@@ -88,10 +136,15 @@ class SessionStore:
         return [{"role": r[0], "content": r[1]} for r in rows]
 
     def clear(self, session_id: str, user_id: int):
+        """清空会话消息（保留 session 元数据，只更新时间戳）"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "DELETE FROM chat_messages WHERE session_id = ? AND user_id = ?",
                 (session_id, user_id),
+            )
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                (time.time(), session_id),
             )
             conn.commit()
 
@@ -117,7 +170,10 @@ class SessionStore:
             conn.commit()
 
     def touch_session(self, session_id: str):
-        """更新 session 的 updated_at 时间戳"""
+        """
+        更新 session 的 updated_at 时间戳。
+        如果 session 不存在（数据修复/竞态），则跳过 — 调用方应在 append 之前调用 ensure_session。
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE session_id = ?",

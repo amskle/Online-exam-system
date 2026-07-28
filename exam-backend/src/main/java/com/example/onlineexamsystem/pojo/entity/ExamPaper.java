@@ -29,4 +29,5 @@ public class ExamPaper {
     private LocalDateTime endTime; // 结束时间
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime createTime; // 创建时间
+    private Boolean autoGradeEnabled; // 是否自动阅卷
 }

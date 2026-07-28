@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 
 from models.schemas import (
@@ -23,11 +23,28 @@ settings = get_settings()
 logger = logging.getLogger("ai-tutor.router.student")
 
 
+def _extract_user_id(claims: dict) -> int:
+    """从 JWT claims 提取 user_id（Spring Boot 将 sub 存为字符串，需转为 int）"""
+    raw = claims.get("sub") or claims.get("userId") or 0
+    return int(raw)
+
+
 # ── 权限依赖 ──
 
-async def require_student(authorization: str = Header(...)):
-    """仅允许学生访问"""
-    token = authorization.removeprefix("Bearer ").strip()
+async def require_student(
+    authorization: str | None = Header(None),
+    exam_token: str | None = Cookie(None, alias="exam_token"),
+):
+    """仅允许学生访问 — 优先取 Authorization 头，回退到 exam_token Cookie（与 Spring Boot 一致）"""
+    token = None
+    if authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+    if not token and exam_token:
+        token = exam_token
+
+    if not token:
+        raise HTTPException(status_code=401, detail="未提供认证令牌")
+
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
@@ -119,7 +136,7 @@ async def ask_question(
     对话历史由服务端会话存储管理，request 只需传 session_id。
     """
     token, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
 
     # 考试中禁止使用
     active_exam = await exam_bridge.get_active_exam(token)
@@ -190,7 +207,7 @@ async def ask_question_stream(
     使用 LangGraph astream(updates) 逐节点推送进度和 LLM token，提供实时打字体验。
     """
     token, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
 
     # 考试中禁止使用
     active_exam = await exam_bridge.get_active_exam(token)
@@ -310,7 +327,7 @@ async def clear_session(
 ):
     """清空指定会话的对话历史"""
     token, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     session_store.clear(req.session_id, user_id)
     return ApiResponse(code=200, message="会话已清空", data={"session_id": req.session_id})
 
@@ -319,7 +336,7 @@ async def clear_session(
 async def list_student_sessions(auth=Depends(require_student)):
     """列出当前学生的答疑会话历史，按最近更新时间倒序"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     sessions = session_store.list_sessions(user_id, agent_mode='student')
     return ApiResponse(code=200, message="成功", data=sessions)
 
@@ -328,7 +345,7 @@ async def list_student_sessions(auth=Depends(require_student)):
 async def delete_student_session(session_id: str, auth=Depends(require_student)):
     """删除指定会话及其所有消息"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     session_store.delete_session(session_id, user_id)
     return ApiResponse(code=200, message="会话已删除", data={"session_id": session_id})
 
@@ -337,7 +354,7 @@ async def delete_student_session(session_id: str, auth=Depends(require_student))
 async def get_student_session(session_id: str, auth=Depends(require_student)):
     """获取单个会话的完整消息历史"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     session = session_store.get_session(session_id, user_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")

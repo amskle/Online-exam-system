@@ -65,3 +65,10 @@ auth:
 # JWT — 生产环境通过环境变量覆盖
 jwt:
   secret: ${JWT_SECRET:t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3}
+
+app:
+  feature:
+    export-enabled: true
+    max-export-rows: 1000
+
+

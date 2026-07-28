@@ -17,6 +17,12 @@ export const studentExamRecordSubmitApi = (params: { recordId?: number; paperId?
 export const studentExamRecordWarnApi = (recordId: number) =>
   request.post<Result<void>>(`/student/examRecords/warn?recordId=${recordId}`)
 
+export const studentExamRecordSaveProgressApi = (params: { recordId?: number; paperId?: number; answers: Array<{ questionId?: number; userAnswer?: string }> }) =>
+  request.post<Result<void>>('/student/examRecords/save-progress', params)
+
+export const studentExamRecordDraftApi = (recordId: number) =>
+  request.get<Result<Array<{ questionId?: number; userAnswer?: string }>>>(`/student/examRecords/${recordId}/draft`)
+
 export const studentExamRecordListApi = (params: PageQuery & { paperTitle?: string; status?: number }) =>
   request.get<Result<PageVO<ExamRecord>>>('/student/examRecords/listPage', params)
 

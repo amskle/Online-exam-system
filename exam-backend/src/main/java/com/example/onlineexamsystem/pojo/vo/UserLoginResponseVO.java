@@ -14,8 +14,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class UserLoginResponseVO {
     private String status;
-    private String token;
-    private Integer role;
+    private Integer userId;
     private String roleName;
     private String challengeId;
     private String maskedEmail;

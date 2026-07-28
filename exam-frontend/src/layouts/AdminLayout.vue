@@ -61,6 +61,7 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import { clearAllAuth, getRole, RoleEnum } from '@/utils/localStorage'
+import { logoutApi } from '@/api/user-api'
 import UserProfileMenu from '@/components/UserProfileMenu.vue'
 import FloatingTutor from '@/components/FloatingTutor.vue'
 
@@ -129,6 +130,7 @@ const currentDescription = computed(() => currentMenu.value?.description ?? '在
 const roleLabel = computed(() => (isAdmin.value ? '管理员' : '老师'))
 
 const logout = () => {
+  logoutApi().finally(() => {})
   clearAllAuth()
   router.push('/')
 }

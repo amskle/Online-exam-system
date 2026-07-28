@@ -36,12 +36,16 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
                     "ALTER TABLE exam_record ADD COLUMN attempt_count INT NOT NULL DEFAULT 1 COMMENT '当前记录累计考试次数' AFTER pass_score");
             addColumnIfMissing(databaseName, "exam_record", "warning_count",
                     "ALTER TABLE exam_record ADD COLUMN warning_count INT NOT NULL DEFAULT 0 COMMENT '切屏/离开页面次数' AFTER attempt_count");
+            addColumnIfMissing(databaseName, "exam_record", "highest_score",
+                    "ALTER TABLE exam_record ADD COLUMN highest_score INT NOT NULL DEFAULT 0 COMMENT '历史最高成绩' AFTER score");
             addColumnIfMissing(databaseName, "user", "email",
                     "ALTER TABLE user ADD COLUMN email VARCHAR(254) NULL COMMENT '邮箱' AFTER phone");
             addColumnIfMissing(databaseName, "user", "email_verify_time",
                     "ALTER TABLE user ADD COLUMN email_verify_time DATETIME NULL COMMENT '邮箱验证时间' AFTER email");
             addIndexIfMissing(databaseName, "user", "uk_user_email",
                     "ALTER TABLE user ADD UNIQUE INDEX uk_user_email (email)");
+            addColumnIfMissing(databaseName, "exam_paper", "auto_grade_enabled",
+                    "ALTER TABLE exam_paper ADD COLUMN auto_grade_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否自动阅卷 0否 1是' AFTER status");
         }
         jdbcTemplate.update("UPDATE exam_paper SET max_attempts = 1 WHERE max_attempts IS NULL OR max_attempts < 1");
         jdbcTemplate.update("UPDATE exam_record SET attempt_count = 1 WHERE attempt_count IS NULL OR attempt_count < 1");
@@ -59,12 +63,12 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
     private void addColumnIfMissing(String databaseName, String tableName, String columnName, String alterSql) {
         Integer count = jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = ?
-                  AND TABLE_NAME = ?
-                  AND COLUMN_NAME = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = ?
+                          AND TABLE_NAME = ?
+                          AND COLUMN_NAME = ?
+                        """,
                 Integer.class,
                 databaseName,
                 tableName,
@@ -78,12 +82,12 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
     private void addIndexIfMissing(String databaseName, String tableName, String indexName, String alterSql) {
         Integer count = jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA = ?
-                  AND TABLE_NAME = ?
-                  AND INDEX_NAME = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM information_schema.STATISTICS
+                        WHERE TABLE_SCHEMA = ?
+                          AND TABLE_NAME = ?
+                          AND INDEX_NAME = ?
+                        """,
                 Integer.class,
                 databaseName,
                 tableName,

@@ -84,6 +84,7 @@ export interface ExamRecord {
   paperId?: number
   paperTitle?: string
   score?: number
+  highestScore?: number
   totalScore?: number
   passScore?: number
   attemptCount?: number

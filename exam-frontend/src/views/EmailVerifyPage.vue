@@ -10,7 +10,8 @@ import {
   saveAuthChallenge,
   type AuthChallengeState
 } from '@/utils/authChallenge'
-import { RoleEnum, setRole, setRoleName, setToken } from '@/utils/localStorage'
+import { RoleEnum, setRole, setRoleName, setUserId } from '@/utils/localStorage'
+import { broadcastLogin } from '@/utils/sessionSync'
 
 const router = useRouter()
 const challenge = ref<AuthChallengeState | null>(getAuthChallenge())
@@ -85,6 +86,16 @@ const sendCode = async () => {
   }
 }
 
+const roleNameToEnum = (name?: string): RoleEnum | null => {
+  if (!name) return null
+  switch (name) {
+    case '管理员': return RoleEnum.ADMIN
+    case '教师': return RoleEnum.TEACHER
+    case '学生': return RoleEnum.STUDENT
+    default: return null
+  }
+}
+
 const verify = async () => {
   if (!challenge.value || submitting.value) return
   if (!/^\d{6}$/.test(code.value)) {
@@ -99,11 +110,14 @@ const verify = async () => {
       trustDevice: trustDevice.value
     })
     const data = response.data
-    const role = (data?.role ?? 0) as RoleEnum
-    if (!data?.token || !role) throw new Error('认证响应不完整')
-    setToken(data.token)
+    const role = roleNameToEnum(data?.roleName)
+    if (!data?.roleName || !role) throw new Error('认证响应不完整')
     setRole(role)
-    setRoleName(data.roleName ?? '')
+    setRoleName(data.roleName)
+    if (data.userId) {
+      setUserId(data.userId)
+      broadcastLogin(data.userId)
+    }
     const purpose = challenge.value.purpose
     const target = role === RoleEnum.ADMIN
       ? '/admin-home/dashboards'

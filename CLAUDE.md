@@ -83,4 +83,5 @@ pytest tests/test_api.py::TestHealthCheck -v  # run a single test class
   - `retrieval_top_k: 5` — number of RAG chunks retrieved per query
 
 
-
+# 项目学习
+我正在学习这个项目，你制作的所有教材文件都保存在Tutorial文件夹里

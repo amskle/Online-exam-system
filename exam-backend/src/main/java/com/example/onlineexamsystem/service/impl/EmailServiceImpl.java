@@ -15,8 +15,11 @@ import com.example.onlineexamsystem.service.EmailService;
 import com.example.onlineexamsystem.utils.EmailUtil;
 import com.example.onlineexamsystem.utils.JwtUtil;
 import com.example.onlineexamsystem.utils.RedisUtil;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +49,11 @@ public class EmailServiceImpl implements EmailService {
     private static final String PURPOSE_REGISTER = "REGISTER";
     private static final String CHALLENGE_PREFIX = "auth:challenge:";
     private static final String TRUSTED_PREFIX = "auth:trusted-device:";
+    private static final String LOGIN_VERSION_PREFIX = "user:login_version:";
+    private static final String AUTH_COOKIE_NAME = "exam_token";
+    private static final String LOGIN_FAIL_PREFIX = "login_fail:";
+    private static final int MAX_LOGIN_ATTEMPTS = 5;
+    private static final Duration LOGIN_LOCK_DURATION = Duration.ofMinutes(15);
     private static final int MAX_VERIFY_ATTEMPTS = 5;
 
     private final BaseUserService baseUserService;
@@ -67,12 +75,27 @@ public class EmailServiceImpl implements EmailService {
     @Value("${auth.trusted-device-ttl:7d}")
     private Duration trustedDeviceTtl;
 
+    @Value("${auth.trusted-device-secure-cookie:false}")
+    private boolean secureCookie;
+
     @Override
-    public UserLoginResponseVO beginLogin(UserLoginDTO dto, Map<Integer, String> trustedDeviceTokens) {
+    public UserLoginResponseVO beginLogin(UserLoginDTO dto, Map<Integer, String> trustedDeviceTokens,
+                                          HttpServletResponse response) {
         String account = dto.getAccount().trim();
+        String failKey = LOGIN_FAIL_PREFIX + account;
+
+        // ① 检查是否已被锁定
+        String failCountStr = redisUtil.get(failKey);
+        if (failCountStr != null && Integer.parseInt(failCountStr) >= MAX_LOGIN_ATTEMPTS) {
+            long remainingSeconds = redisUtil.getExpireSeconds(failKey);
+            throw new BusinessException(
+                    "账号已被锁定，请 " + (remainingSeconds / 60 + 1) + " 分钟后重试");
+        }
+
         BaseUser user = findByAccount(account);
         if (user == null || !passwordMatches(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException("账号或密码错误", 400);
+            recordLoginFailure(failKey);  // 记录失败次数
+            throw new BusinessException("密码错误", 400);
         }
         if (Boolean.TRUE.equals(user.getLoginStatus())) {
             throw new BusinessException("账号已被停用，请联系管理员", 403);
@@ -82,7 +105,12 @@ public class EmailServiceImpl implements EmailService {
         String trustedDeviceToken = trustedDeviceTokens.get(user.getId());
         if (StringUtils.hasText(trustedDeviceToken)
                 && redisUtil.hasKey(trustedDeviceKey(user.getId(), trustedDeviceToken))) {
-            return authenticated(user);
+            return authenticated(user, response);
+        }
+        // 回落：Redis 重启后信任设备 token 丢失，但 email_verify_time 存于 MySQL 不会丢
+        if (user.getEmailVerifyTime() != null
+                && Duration.between(user.getEmailVerifyTime(), LocalDateTime.now()).compareTo(trustedDeviceTtl) < 0) {
+            return authenticated(user, response);
         }
 
         String challengeId = UUID.randomUUID().toString();
@@ -146,7 +174,7 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     @Transactional
-    public VerificationResult verify(EmailVerifyDTO dto) {
+    public VerificationResult verify(EmailVerifyDTO dto, HttpServletResponse response) {
         String key = challengeKey(dto.getChallengeId());
         Map<String, String> challenge = redisUtil.getHash(key);
         if (challenge.isEmpty()) {
@@ -178,7 +206,7 @@ public class EmailServiceImpl implements EmailService {
         if (dto.isTrustDevice()) {
             deviceToken = createTrustedDevice(user.getId());
         }
-        return new VerificationResult(authenticated(user), deviceToken, user.getId());
+        return new VerificationResult(authenticated(user, response), deviceToken, user.getId());
     }
 
     private UserLoginResponseVO dispatchCode(String challengeId, String email, String purpose) {
@@ -240,11 +268,28 @@ public class EmailServiceImpl implements EmailService {
         return user;
     }
 
-    private UserLoginResponseVO authenticated(BaseUser user) {
+    private UserLoginResponseVO authenticated(BaseUser user, HttpServletResponse response) {
+        // 登录成功 → 清除失败计数
+        redisUtil.delete(LOGIN_FAIL_PREFIX + user.getAccount());
+
+        // 生成新登录版本号，使旧 token 失效（顶号）
+        String loginVersion = UUID.randomUUID().toString();
+        redisUtil.put(LOGIN_VERSION_PREFIX + user.getId(), loginVersion, trustedDeviceTtl);
+        String token = jwtUtil.generateToken(user.getId(), user.getRole(), loginVersion);
+
+        // 设置 HttpOnly Cookie，防止 XSS 窃取 Token
+        ResponseCookie cookie = ResponseCookie.from(AUTH_COOKIE_NAME, token)
+                .httpOnly(true)
+                .secure(secureCookie)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(trustedDeviceTtl)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+
         return UserLoginResponseVO.builder()
                 .status(STATUS_AUTHENTICATED)
-                .token(jwtUtil.generateToken(user.getId(), user.getRole()))
-                .role(user.getRole())
+                .userId(user.getId())
                 .roleName(RoleEnum.getByRole(user.getRole()).getDescription())
                 .build();
     }
@@ -274,6 +319,13 @@ public class EmailServiceImpl implements EmailService {
                 .eq(BaseUser::getEmail, email));
         if (existing != null && !Objects.equals(existing.getId(), allowedUserId)) {
             throw new BusinessException("邮箱已被其他账号使用", 400);
+        }
+    }
+
+    private void recordLoginFailure(String failKey) {
+        long count = redisUtil.recordLoginFailure(failKey, LOGIN_LOCK_DURATION, MAX_LOGIN_ATTEMPTS);
+        if (count >= MAX_LOGIN_ATTEMPTS) {
+            throw new BusinessException("密码错误次数过多，账号已被锁定15分钟");
         }
     }
 

@@ -12,8 +12,9 @@ import {
   saveRememberedLogin,
   setRole,
   setRoleName,
-  setToken
+  setUserId
 } from '@/utils/localStorage'
+import { broadcastLogin } from '@/utils/sessionSync'
 
 const router = useRouter()
 const mode = ref<'login' | 'register'>('login')
@@ -32,15 +33,29 @@ const loginPwdVisible = ref(false)
 const regPwdVisible = ref(false)
 
 const finishLogin = async (data: UserLoginResponseVO) => {
-  const role = (data.role ?? 0) as RoleEnum
-  if (!data.token || !role) throw new Error('登录响应不完整')
-  setToken(data.token)
+  // Token 通过 HttpOnly Cookie 自动管理，客户端只需记录角色信息用于路由
+  const role = roleNameToEnum(data.roleName)
+  if (!data.roleName || !role) throw new Error('登录响应不完整')
   setRole(role)
-  setRoleName(data.roleName ?? '')
+  setRoleName(data.roleName)
+  if (data.userId) {
+    setUserId(data.userId)
+    broadcastLogin(data.userId)
+  }
   ElMessage.success('登录成功')
   if (role === RoleEnum.ADMIN) return router.push('/admin-home/dashboards')
   if (role === RoleEnum.TEACHER) return router.push('/admin-home/questions')
   return router.push('/user-home/dashboards')
+}
+
+const roleNameToEnum = (name?: string): RoleEnum | null => {
+  if (!name) return null
+  switch (name) {
+    case '管理员': return RoleEnum.ADMIN
+    case '教师': return RoleEnum.TEACHER
+    case '学生': return RoleEnum.STUDENT
+    default: return null
+  }
 }
 
 const continueAuth = async (data: UserLoginResponseVO, purpose: AuthPurpose) => {

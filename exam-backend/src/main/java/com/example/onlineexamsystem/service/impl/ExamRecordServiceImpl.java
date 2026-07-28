@@ -69,9 +69,15 @@ public class ExamRecordServiceImpl extends ServiceImpl<ExamRecordMapper, ExamRec
                 new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, dto.getRecordId())
         );
         int score = answers.stream().mapToInt(item -> item.getScore() == null ? 0 : item.getScore()).sum();
+        ExamRecord existing = this.getById(dto.getRecordId());
         ExamRecord record = new ExamRecord();
         record.setId(dto.getRecordId());
         record.setScore(score);
+        // 更新历史最高成绩
+        int currentHighest = existing != null && existing.getHighestScore() != null ? existing.getHighestScore() : 0;
+        if (score > currentHighest) {
+            record.setHighestScore(score);
+        }
         this.updateById(record);
     }
 }

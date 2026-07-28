@@ -5,6 +5,7 @@ import { getToken } from '@/utils/localStorage'
 const aiClient = axios.create({
   baseURL: import.meta.env.VITE_AI_BASE_URL || '/ai',
   timeout: 60000,
+  withCredentials: true,
 })
 
 aiClient.interceptors.request.use((config) => {

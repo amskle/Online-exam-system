@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS exam_paper (
   status TINYINT NOT NULL DEFAULT 0 COMMENT '0未发布 1已发布 2已结束',
   start_time DATETIME,
   end_time DATETIME,
-  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  auto_grade_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否自动阅卷 0否 1是'
 );
 
 CREATE TABLE IF NOT EXISTS exam_paper_question (
@@ -73,8 +74,7 @@ CREATE TABLE IF NOT EXISTS exam_record (
   attempt_count INT NOT NULL DEFAULT 1 COMMENT '当前记录累计考试次数',
   status TINYINT NOT NULL DEFAULT 0 COMMENT '0进行中 1已交卷',
   start_time DATETIME,
-  submit_time DATETIME,
-  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  submit_time DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS exam_record_answer (

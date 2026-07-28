@@ -83,12 +83,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { EditPen, TurnOff, Operation, ArrowDownBold, Eleme } from '@element-plus/icons-vue'
-import { getToken, clearToken, clearRole, clearRoleName } from '@/utils/localStorage'
+import { getRoleName, clearAllAuth } from '@/utils/localStorage'
 import { useRouter } from 'vue-router'
 import { BaseUserVO, UserUpdatePasswordDTO, BaseUserUpdateDTO } from '@/types/user'
 import { ElMessage, ElMessageBox, UploadProps } from 'element-plus'
 import type { Action } from 'element-plus'
-import { updatePasswordApi, userTokenAuthApi, userUpdateInfoApi, uploadAvatarApi } from '@/api/user-api'
+import { logoutApi, updatePasswordApi, userTokenAuthApi, userUpdateInfoApi, uploadAvatarApi } from '@/api/user-api'
 const router = useRouter()
 const baseUser = ref<BaseUserVO>({})
 const updatePasswordDTO = ref<UserUpdatePasswordDTO>({})
@@ -147,10 +147,9 @@ const handleUpdatePassword = async () => {
     }
     await updatePasswordApi(baseUser.value.id, updatePasswordDTO.value);
     loadingUpdatePassword.value = true
+    logoutApi().finally(() => {})
     router.push('/')
-    clearRole()
-    clearRoleName()
-    clearToken()
+    clearAllAuth()
     ElMessage.success(`修改密码成功，请重新登录`)
     return
   } catch (error: any) {
@@ -189,9 +188,8 @@ const loginout = () => {
     confirmButtonText: 'OK',
     callback: (action: Action) => {
       if (action === 'confirm') {
-        clearRole()
-        clearToken()
-        clearRoleName()
+        logoutApi().finally(() => {})
+        clearAllAuth()
         router.push('/')
         ElMessage.success(`退出登录成功`)
       }
@@ -199,9 +197,9 @@ const loginout = () => {
   })
 }
 
-const tokenAuth = async (token: string) => {
+const tokenAuth = async () => {
   try {
-    const response = await userTokenAuthApi(token);
+    const response = await userTokenAuthApi();
     baseUser.value = response?.data ?? {};
   } catch (error: any) {
     router.push('/')
@@ -210,13 +208,13 @@ const tokenAuth = async (token: string) => {
   }
 }
 onMounted(async () => {
-  const token = getToken();
-  if (!token) {
+  const roleName = getRoleName();
+  if (!roleName) {
     router.push('/')
     ElMessage.error(`身份验证异常`)
     return
   }
-  await tokenAuth(token)
+  await tokenAuth()
 })
 
 const beforeAvatarUpload: UploadProps['beforeUpload'] = (rawFile) => {

@@ -81,7 +81,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { studentExamPaperDetailApi, studentExamRecordStartApi, studentExamRecordSubmitApi, studentExamRecordWarnApi } from '@/api/student-api'
+import { studentExamPaperDetailApi, studentExamRecordStartApi, studentExamRecordSubmitApi, studentExamRecordWarnApi, studentExamRecordSaveProgressApi, studentExamRecordDraftApi } from '@/api/student-api'
 import type { ExamPaper, ExamRecord, Question } from '@/types/admin'
 
 type AnswerValue = string | string[]
@@ -100,7 +100,9 @@ const remainingSeconds = ref(0)
 const leaveWarnings = ref(0)
 const currentAnchor = ref<number>()
 let timer: ReturnType<typeof setInterval> | undefined
+let autoSaveTimer: ReturnType<typeof setInterval> | undefined
 let examDeadline = 0
+const AUTO_SAVE_INTERVAL = 30_000 // 30 秒自动保存一次
 
 const parseDateTime = (value?: string) => value ? new Date(value.replace(' ', 'T')).getTime() : NaN
 
@@ -144,6 +146,8 @@ const loadExam = async () => {
       if (!question.id) return
       answers[question.id] = question.type === 2 ? [] : ''
     })
+    // 恢复之前的草稿答案
+    await restoreDraft()
     const recordStartedAt = parseDateTime(record.value?.startTime)
     const durationDeadline = (Number.isNaN(recordStartedAt) ? Date.now() : recordStartedAt)
       + (paper.value?.duration ?? 0) * 60 * 1000
@@ -175,6 +179,12 @@ const startTimer = () => {
       autoSubmit()
     }
   }, 1000)
+  // 自动保存定时器
+  if (autoSaveTimer) clearInterval(autoSaveTimer)
+  autoSaveTimer = setInterval(() => {
+    if (submitted.value) return
+    saveProgress()
+  }, AUTO_SAVE_INTERVAL)
 }
 
 const parseOptions = (options?: string) => {
@@ -223,10 +233,38 @@ const submitExam = async () => {
     await studentExamRecordSubmitApi(buildSubmitPayload())
     submitted.value = true
     if (timer) clearInterval(timer)
+    if (autoSaveTimer) clearInterval(autoSaveTimer)
     ElMessage.success('交卷成功')
     router.replace('/user-home/records')
   } finally {
     submitting.value = false
+  }
+}
+
+const saveProgress = () => {
+  if (submitted.value || !record.value?.id) return
+  const payload = buildSubmitPayload()
+  if (!payload.answers.some(a => a.userAnswer)) return // 无任何作答内容，不保存
+  studentExamRecordSaveProgressApi(payload).catch(() => {})
+}
+
+const restoreDraft = async () => {
+  if (!record.value?.id) return
+  try {
+    const res = await studentExamRecordDraftApi(record.value.id)
+    const drafts = res.data ?? []
+    for (const draft of drafts) {
+      if (!draft.questionId) continue
+      const question = questions.value.find(q => q.id === draft.questionId)
+      if (!question) continue
+      if (question.type === 2 && draft.userAnswer) {
+        answers[draft.questionId] = draft.userAnswer.split(',').filter(Boolean)
+      } else {
+        answers[draft.questionId] = draft.userAnswer ?? ''
+      }
+    }
+  } catch {
+    // 恢复失败不影响考试流程
   }
 }
 
@@ -255,6 +293,18 @@ const scrollToQuestion = (questionId?: number) => {
 
 const handleBeforeUnload = (event: BeforeUnloadEvent) => {
   if (submitted.value) return
+  // 页面关闭前尝试发送保存请求
+  const payload = buildSubmitPayload()
+  if (payload.answers.some(a => a.userAnswer)) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8077'
+    const token = (() => { try { return sessionStorage.getItem('TOKEN') ?? '' } catch { return '' } })()
+    fetch(`${baseUrl}/student/examRecords/save-progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).catch(() => {})
+  }
   event.preventDefault()
   event.returnValue = ''
 }
@@ -266,6 +316,8 @@ const handleVisibilityChange = () => {
     if (record.value?.id) {
       studentExamRecordWarnApi(record.value.id).catch(() => {})
     }
+    // 切到后台时立即保存一次
+    saveProgress()
   }
 }
 
@@ -277,6 +329,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (autoSaveTimer) clearInterval(autoSaveTimer)
   window.removeEventListener('beforeunload', handleBeforeUnload)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })

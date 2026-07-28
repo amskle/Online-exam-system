@@ -1,6 +1,6 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
-import { getToken } from './localStorage'
+import { clearAllAuth, getToken } from './localStorage'
 
 // 创建 axios 实例
 const instance = axios.create({
@@ -25,6 +25,17 @@ instance.interceptors.response.use(
         return response.data
     },
     (error) => {
+        // 处理 401（未授权/被顶号）
+        if (error.response?.status === 401) {
+            const msg = error.response?.data?.message || '登录已过期，请重新登录'
+            clearAllAuth()
+            // 避免重复弹窗：只在非登录页时跳转
+            if (window.location.pathname !== '/login') {
+                ElMessage.warning(msg)
+                window.location.href = '/login'
+            }
+            return Promise.reject(error)
+        }
         ElMessage.error(error.message || '请求失败，请稍后再试')
         return Promise.reject(error)
     }

@@ -7,18 +7,31 @@ import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
 import com.example.onlineexamsystem.pojo.dto.UserRegisterDTO;
 import com.example.onlineexamsystem.pojo.dto.UserUpdatePasswordDTO;
 import com.example.onlineexamsystem.pojo.entity.BaseUser;
+import com.example.onlineexamsystem.pojo.entity.ExamPaper;
+import com.example.onlineexamsystem.pojo.entity.ExamRecord;
+import com.example.onlineexamsystem.pojo.entity.Question;
 import com.example.onlineexamsystem.pojo.enums.RoleEnum;
 import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.utils.JwtUtil;
+import com.example.onlineexamsystem.utils.RedisUtil;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Encoder;
+import io.jsonwebtoken.io.Serializer;
+import io.jsonwebtoken.security.InvalidKeyException;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.security.Key;
 import java.time.LocalDateTime;
+import java.util.Date;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -27,6 +40,7 @@ import static org.mockito.Mockito.*;
 /**
  * BaseUserServiceImpl 单元测试 — 覆盖登录、注册、token验证、修改密码
  */
+@Slf4j
 @ExtendWith(MockitoExtension.class)
 class BaseUserServiceImplTest {
 
@@ -34,6 +48,7 @@ class BaseUserServiceImplTest {
     @Mock private JwtUtil jwtUtil;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private com.example.onlineexamsystem.service.FileUploadService fileUploadService;
+    @Mock private RedisUtil redisUtil;
 
     private BaseUserServiceImpl userService;
 
@@ -41,7 +56,7 @@ class BaseUserServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        userService = new BaseUserServiceImpl(jwtUtil, fileUploadService, passwordEncoder);
+        userService = new BaseUserServiceImpl(jwtUtil, fileUploadService, passwordEncoder, redisUtil);
         // 手动注入 MyBatis-Plus 的 baseMapper 字段
         ReflectionTestUtils.setField(userService, "baseMapper", baseMapper);
 
@@ -68,7 +83,7 @@ class BaseUserServiceImplTest {
 
         when(baseMapper.selectOne(any(LambdaQueryWrapper.class), anyBoolean())).thenReturn(testUser);
         when(passwordEncoder.matches("correctPassword", testUser.getPassword())).thenReturn(true);
-        when(jwtUtil.generateToken(1, RoleEnum.STUDENT.getRole())).thenReturn("mocked-jwt-token");
+        when(jwtUtil.generateToken(anyInt(), anyInt(), anyString())).thenReturn("mocked-jwt-token");
 
         UserLoginResponseVO result = userService.login(dto);
 
@@ -126,7 +141,7 @@ class BaseUserServiceImplTest {
         dto.setPassword("plaintext_password");
 
         when(baseMapper.selectOne(any(LambdaQueryWrapper.class), anyBoolean())).thenReturn(testUser);
-        when(jwtUtil.generateToken(1, RoleEnum.STUDENT.getRole())).thenReturn("mocked-jwt");
+        when(jwtUtil.generateToken(anyInt(), anyInt(), anyString())).thenReturn("mocked-jwt");
 
         UserLoginResponseVO result = userService.login(dto);
 

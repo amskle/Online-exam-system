@@ -24,9 +24,13 @@ export const sendEmailCodeApi = (params: EmailSendDTO) => {
 export const verifyEmailCodeApi = (params: EmailVerifyDTO) => {
     return request.post<Result<UserLoginResponseVO>>("/email/verify", params)
 }
-// Token认证
-export const userTokenAuthApi = (token: string) => {
-    return request.get<Result<BaseUserVO>>(`/user/${token}/auth`)
+// Token认证（token 通过 Authorization 请求头传递，无需 URL 参数）
+export const userTokenAuthApi = () => {
+    return request.get<Result<BaseUserVO>>('/user/auth')
+}
+// 用户登出（清除服务端 HttpOnly Cookie）
+export const logoutApi = () => {
+    return request.post<Result<void>>('/user/logout')
 }
 // 用户修改密码
 export const updatePasswordApi = (id: number, params: UserUpdatePasswordDTO) => {

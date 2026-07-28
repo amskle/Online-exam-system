@@ -5,12 +5,14 @@ import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.api.ResultCode;
 import com.example.onlineexamsystem.utils.JwtUtil;
+import com.example.onlineexamsystem.utils.RedisUtil;
 import com.example.onlineexamsystem.utils.UserContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -22,12 +24,14 @@ import java.lang.reflect.Method;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class JwtInterceptor implements HandlerInterceptor {
     private final JwtUtil jwtUtil;
-    // 不需要拦截的路径
+    private final RedisUtil redisUtil;
+    // 不需要拦截的路径（使用 startsWith 精确匹配路径前缀）
     private static final String[] EXCLUDE_PATHS = {
-            "/login",
-            "/register",
+            "/user/login",
+            "/user/register",
             "/files/upload"
     };
 
@@ -41,8 +45,10 @@ public class JwtInterceptor implements HandlerInterceptor {
                              HttpServletResponse response,
                              Object handler) throws Exception {
         String path = request.getRequestURI();
+        log.info("拦截请求：{}", path);
         // 检查是否在白名单中
         if (isExcludePath(path)) {
+            log.info("白名单放行：{}", path);
             return true;
         }
         // 如果不是方法级别的映射，直接放行
@@ -58,8 +64,13 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        //从 Header 中获取 token
+        //从 Header 中获取 token（优先），其次从 HttpOnly Cookie 获取
         String token = request.getHeader("Authorization");
+
+        if (token == null || token.trim().isEmpty()) {
+            // 回退到 Cookie 中查找
+            token = extractTokenFromCookie(request);
+        }
 
         if (token == null || token.trim().isEmpty()) {
             handleUnauthorized(response, "未提供认证令牌");
@@ -85,6 +96,18 @@ public class JwtInterceptor implements HandlerInterceptor {
             Integer role = jwtUtil.getRole(token);
             // 将用户信息存储到 ThreadLocal
             UserContext.setUser(userId, role);
+
+            // 顶号检测：验证 JWT 中的登录版本号是否与 Redis 一致
+            String loginVersion = jwtUtil.getLoginVersion(token);
+            if (loginVersion != null) {
+                String storedVersion = redisUtil.get("user:login_version:" + userId);
+                if (storedVersion != null && !storedVersion.equals(loginVersion)) {
+                    handleUnauthorized(response, "账号已在其他设备登录，请重新登录");
+                    return false;
+                }
+                // storedVersion 为 null（Redis 不可用或 key 过期）时放行，避免误伤
+            }
+
             int[] requiredRoles = auth.value();
             // 如果注解中指定了角色，则需要校验角色
             if (requiredRoles.length > 0) {
@@ -94,6 +117,10 @@ public class JwtInterceptor implements HandlerInterceptor {
                     return false;
                 }
             }
+            UserContext.setUser(userId, role);
+            log.info("用户上下文已设置：userId：{}, role：{}", userId, role);
+
+            log.info("鉴权通过：{} (userId={}, role={})", path, userId, role);
 
             // 有 @Auth 注解且没有指定角色，只需要登录即可，已经登录成功，放行
             return true;
@@ -102,6 +129,7 @@ public class JwtInterceptor implements HandlerInterceptor {
             handleUnauthorized(response, "认证失败：" + e.getMessage());
             return false;
         }
+
     }
 
     /**
@@ -153,11 +181,26 @@ public class JwtInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * 检查路径是否在白名单中
+     * 从 HttpOnly Cookie 中提取 Token（回退方案）
+     */
+    private String extractTokenFromCookie(HttpServletRequest request) {
+        if (request.getCookies() == null) {
+            return null;
+        }
+        for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+            if ("exam_token".equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 检查路径是否在白名单中（使用 startsWith 精确匹配路径前缀）
      */
     private boolean isExcludePath(String path) {
         for (String excludePath : EXCLUDE_PATHS) {
-            if (path.contains(excludePath)) {
+            if (path.startsWith(excludePath)) {
                 return true;
             }
         }

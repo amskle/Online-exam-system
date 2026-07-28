@@ -30,6 +30,11 @@
             <el-tag :type="(row.score ?? 0) >= (row.passScore ?? 60) ? 'success' : 'danger'">{{ row.score ?? 0 }} 分</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="历史最高" width="110">
+          <template #default="{ row }">
+            <el-tag type="warning">{{ row.highestScore ?? 0 }} 分</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="考试次数" width="100">
           <template #default="{ row }">第 {{ row.attemptCount ?? 1 }} 次</template>
         </el-table-column>
@@ -78,6 +83,10 @@
           <div>
             <span>当前得分</span>
             <strong>{{ currentRecord.score ?? 0 }} / {{ currentRecord.totalScore ?? 0 }}</strong>
+          </div>
+          <div>
+            <span>历史最高</span>
+            <strong>{{ currentRecord.highestScore ?? 0 }} / {{ currentRecord.totalScore ?? 0 }}</strong>
           </div>
           <div>
             <span>考试次数</span>
@@ -258,7 +267,7 @@ onMounted(loadRecords)
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 

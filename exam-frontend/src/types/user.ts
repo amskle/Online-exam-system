@@ -11,8 +11,7 @@ export interface UserLoginDTO {
  */
 export interface UserLoginResponseVO {
     status?: 'AUTHENTICATED' | 'EMAIL_REQUIRED' | 'EMAIL_VERIFICATION_REQUIRED'
-    token?: string
-    role?: number
+    userId?: number
     roleName?: string
     challengeId?: string
     maskedEmail?: string

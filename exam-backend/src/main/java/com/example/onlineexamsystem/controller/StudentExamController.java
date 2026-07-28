@@ -8,6 +8,7 @@ import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.ExamPaperQueryDTO;
 import com.example.onlineexamsystem.pojo.dto.ExamRecordQueryDTO;
 import com.example.onlineexamsystem.pojo.dto.StudentExamSubmitDTO;
+import com.example.onlineexamsystem.pojo.dto.StudentQuestionAnswerDTO;
 import com.example.onlineexamsystem.pojo.entity.*;
 import com.example.onlineexamsystem.pojo.vo.ExamPaperDetailVO;
 import com.example.onlineexamsystem.pojo.vo.ExamRecordDetailVO;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -133,6 +135,7 @@ public class StudentExamController {
         record.setPaperId(paperId);
         record.setPaperTitle(paper.getTitle());
         record.setScore(0);
+        record.setHighestScore(0);
         record.setTotalScore(paper.getTotalScore());
         record.setPassScore(60);
         record.setAttemptCount(1);
@@ -199,10 +202,88 @@ public class StudentExamController {
             }
         }
         record.setScore(totalScore);
+        // 更新历史最高成绩
+        int currentHighest = record.getHighestScore() == null ? 0 : record.getHighestScore();
+        if (totalScore > currentHighest) {
+            record.setHighestScore(totalScore);
+        }
         record.setStatus(1);
         record.setSubmitTime(LocalDateTime.now());
         examRecordService.updateById(record);
         return Result.success();
+    }
+
+    /**
+     * 自动保存答题进度（不交卷）
+     *
+     * @return Result<Void>
+     */
+    @PostMapping("/examRecords/save-progress")
+    public Result<Void> saveProgress(@RequestBody StudentExamSubmitDTO dto) {
+        Integer userId = UserContext.getUserId();
+        ExamRecord record = examRecordService.getById(dto.getRecordId());
+        if (record == null || !Objects.equals(record.getUserId(), userId)) {
+            throw new BusinessException("考试记录不存在");
+        }
+        if (!Objects.equals(record.getStatus(), 0)) {
+            throw new BusinessException("考试已结束，无法保存");
+        }
+        if (dto.getAnswers() != null) {
+            for (var answerDTO : dto.getAnswers()) {
+                Question question = questionService.getById(answerDTO.getQuestionId());
+                if (question == null) {
+                    continue;
+                }
+                ExamRecordAnswer existing = examRecordAnswerService.getOne(
+                        new LambdaQueryWrapper<ExamRecordAnswer>()
+                                .eq(ExamRecordAnswer::getRecordId, record.getId())
+                                .eq(ExamRecordAnswer::getQuestionId, answerDTO.getQuestionId())
+                                .last("limit 1")
+                );
+                ExamRecordAnswer answer;
+                if (existing != null) {
+                    answer = existing;
+                } else {
+                    answer = new ExamRecordAnswer();
+                    answer.setRecordId(record.getId());
+                    answer.setQuestionId(question.getId());
+                    answer.setType(question.getType());
+                    answer.setQuestionContent(question.getContent());
+                    answer.setOptions(question.getOptions());
+                    answer.setCorrectAnswer(question.getAnswer());
+                    answer.setFullScore(getPaperQuestionScore(record.getPaperId(), question));
+                    answer.setCreateTime(LocalDateTime.now());
+                }
+                answer.setUserAnswer(answerDTO.getUserAnswer());
+                examRecordAnswerService.saveOrUpdate(answer);
+            }
+        }
+        return Result.success();
+    }
+
+    /**
+     * 获取考试中的草稿答案（用于页面刷新后恢复）
+     *
+     * @return Result<List<StudentQuestionAnswerDTO>>
+     */
+    @GetMapping("/examRecords/{recordId}/draft")
+    public Result<List<StudentQuestionAnswerDTO>> getDraft(@PathVariable Integer recordId) {
+        Integer userId = UserContext.getUserId();
+        ExamRecord record = examRecordService.getById(recordId);
+        if (record == null || !Objects.equals(record.getUserId(), userId)) {
+            throw new BusinessException("考试记录不存在");
+        }
+        List<ExamRecordAnswer> answers = examRecordAnswerService.list(
+                new LambdaQueryWrapper<ExamRecordAnswer>()
+                        .eq(ExamRecordAnswer::getRecordId, recordId)
+        );
+        List<StudentQuestionAnswerDTO> result = answers.stream().map(a -> {
+            StudentQuestionAnswerDTO dto = new StudentQuestionAnswerDTO();
+            dto.setQuestionId(a.getQuestionId());
+            dto.setUserAnswer(a.getUserAnswer());
+            return dto;
+        }).toList();
+        return Result.success(result);
     }
 
     /**

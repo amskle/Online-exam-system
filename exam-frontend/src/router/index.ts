@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import { getRole, getToken, RoleEnum } from '@/utils/localStorage'
+import { getRole, getRoleName, RoleEnum } from '@/utils/localStorage'
 
 declare module 'vue-router' {
     interface RouteMeta {
@@ -201,10 +201,11 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-    const token = getToken()
+    const roleName = getRoleName()
     const role = getRole()
 
-    if (to.meta.requiresAuth && !token) {
+    // Token 现在通过 HttpOnly Cookie 传递，客户端使用 roleName 判断认证状态
+    if (to.meta.requiresAuth && !roleName) {
         next('/')
         return
     }
@@ -212,7 +213,7 @@ router.beforeEach((to, _from, next) => {
     const roleMatchedRoute = [...to.matched].reverse().find((record) => record.meta.roles?.length)
     const allowedRoles = roleMatchedRoute?.meta.roles ?? []
 
-    if (token && allowedRoles.length && (!role || !allowedRoles.includes(role))) {
+    if (roleName && allowedRoles.length && (!role || !allowedRoles.includes(role))) {
         next('/401')
         return
     }

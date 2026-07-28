@@ -27,16 +27,33 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secretKey.getBytes());
     }
 
+    private static final String CLAIM_LOGIN_VERSION = "loginVer";
+
     /**
-     * 生成 JWT Token
+     * 生成 JWT Token（不带登录版本号，兼容旧调用）
      *
      * @param userId 用户ID
      * @param role   用户角色
      * @return Token
      */
     public String generateToken(Integer userId, Integer role) {
+        return generateToken(userId, role, null);
+    }
+
+    /**
+     * 生成 JWT Token（带登录版本号，用于顶号检测）
+     *
+     * @param userId       用户ID
+     * @param role         用户角色
+     * @param loginVersion 登录版本号，null 则不写入
+     * @return Token
+     */
+    public String generateToken(Integer userId, Integer role, String loginVersion) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", role);
+        if (loginVersion != null) {
+            claims.put(CLAIM_LOGIN_VERSION, loginVersion);
+        }
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(String.valueOf(userId))
@@ -44,6 +61,16 @@ public class JwtUtil {
                 .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
                 .signWith(getKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    /**
+     * 从 Token 中获取登录版本号
+     *
+     * @param token Token
+     * @return 登录版本号，不存在则返回 null
+     */
+    public String getLoginVersion(String token) {
+        return getClaims(token).get(CLAIM_LOGIN_VERSION, String.class);
     }
 
     /**

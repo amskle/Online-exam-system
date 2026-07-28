@@ -21,6 +21,7 @@ public class ExamRecord {
     private Integer paperId; // 试卷ID
     private String paperTitle; // 试卷标题
     private Integer score; // 得分
+    private Integer highestScore; // 历史最高成绩
     private Integer totalScore; // 总分
     private Integer passScore; // 及格分
     private Integer attemptCount; // 当前考试次数

@@ -50,6 +50,7 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         paper.setMaxAttempts(normalizeMaxAttempts(dto.getMaxAttempts()));
         paper.setStatus(dto.getStatus() == null ? 0 : dto.getStatus());
         paper.setCreateTime(LocalDateTime.now());
+        paper.setAutoGradeEnabled(true);
         this.save(paper);
         savePaperQuestions(paper.getId(), dto.getQuestions());
     }

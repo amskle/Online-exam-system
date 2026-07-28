@@ -73,6 +73,14 @@ public class RedisUtil {
         return result == null ? -2 : result;
     }
 
+    public void put(String key, String value, Duration ttl) {
+        redisTemplate.opsForValue().set(key, value, ttl);
+    }
+
+    public String get(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
     public boolean setIfAbsent(String key, String value, Duration ttl) {
         return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, value, ttl));
     }
@@ -96,5 +104,21 @@ public class RedisUtil {
     public long getExpireSeconds(String key) {
         Long seconds = redisTemplate.getExpire(key, TimeUnit.SECONDS);
         return seconds == null || seconds < 0 ? 0 : seconds;
+    }
+
+    /**
+     * 记录当前登陆失败次数（返回当前失败次数）
+     *
+     * @param key         Redis key（如 "login_fail:admin"）
+     * @param ttl         过期时间（如 15 分钟）
+     * @param maxAttempts 最大失败次数（超过后不再递增）
+     * @return 当前最大失败次数
+     */
+    public long recordLoginFailure(String key, Duration ttl, int maxAttempts) {
+        long count = increment(key, ttl);
+        if (count > maxAttempts) {
+            return maxAttempts;  // 超过最大值时返回最大值（已被锁定）
+        }
+        return count;
     }
 }

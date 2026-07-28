@@ -1,7 +1,7 @@
 """教师智能体 API 路由 — 出题、推荐、文档上传"""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, UploadFile, File, Form
 
 from models.schemas import (
     ApiResponse,
@@ -28,11 +28,28 @@ router = APIRouter()
 logger = logging.getLogger("ai-tutor.router.teacher")
 
 
+def _extract_user_id(claims: dict) -> int:
+    """从 JWT claims 提取 user_id（Spring Boot 将 sub 存为字符串，需转为 int）"""
+    raw = claims.get("sub") or claims.get("userId") or 0
+    return int(raw)
+
+
 # ── 权限依赖 ──
 
-async def require_teacher_or_admin(authorization: str = Header(...)):
-    """仅允许教师/管理员访问"""
-    token = authorization.removeprefix("Bearer ").strip()
+async def require_teacher_or_admin(
+    authorization: str | None = Header(None),
+    exam_token: str | None = Cookie(None, alias="exam_token"),
+):
+    """仅允许教师/管理员访问 — 优先取 Authorization 头，回退到 exam_token Cookie（与 Spring Boot 一致）"""
+    token = None
+    if authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+    if not token and exam_token:
+        token = exam_token
+
+    if not token:
+        raise HTTPException(status_code=401, detail="未提供认证令牌")
+
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
@@ -108,7 +125,7 @@ async def generate_questions(
     完整走 LangGraph 流水线：需求理解 → 检索 → 分批生成 → 质检 → 入库。
     """
     token, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
 
     state = {
         "subject_id": req.subject_id,
@@ -204,7 +221,7 @@ async def chat(
     语义检索知识库 → 构建上下文 → LLM 回答，不走出题流水线。
     """
     token, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
 
     # ── 检索相关文档 ──
     try:
@@ -368,7 +385,7 @@ def _strip_answer(text: str) -> str:
 async def list_teacher_sessions(auth=Depends(require_teacher_or_admin)):
     """列出当前教师的出题历史会话，按最近更新时间倒序"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     sessions = session_store.list_sessions(user_id, agent_mode='teacher')
     return ApiResponse(code=200, message="成功", data=sessions)
 
@@ -377,7 +394,7 @@ async def list_teacher_sessions(auth=Depends(require_teacher_or_admin)):
 async def delete_teacher_session(session_id: str, auth=Depends(require_teacher_or_admin)):
     """删除指定出题历史会话"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     session_store.delete_session(session_id, user_id)
     return ApiResponse(code=200, message="会话已删除", data={"session_id": session_id})
 
@@ -386,7 +403,7 @@ async def delete_teacher_session(session_id: str, auth=Depends(require_teacher_o
 async def get_teacher_session(session_id: str, auth=Depends(require_teacher_or_admin)):
     """获取单个出题会话的完整记录"""
     _, claims = auth
-    user_id = claims.get("sub") or claims.get("userId") or 0
+    user_id = _extract_user_id(claims)
     session = session_store.get_session(session_id, user_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")

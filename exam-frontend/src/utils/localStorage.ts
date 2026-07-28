@@ -1,6 +1,7 @@
 const ROLE_KEY = 'ROLE'
 const ROLE_NAME_KEY = 'ROLE_NAME'
 const TOKEN_KEY = 'TOKEN'
+const USER_ID_KEY = 'USER_ID'
 const REMEMBER_KEY = 'remember_login'
 
 // ── 会话级存储（sessionStorage）──
@@ -81,8 +82,22 @@ export const clearToken = () => {
   sessionStore.remove(TOKEN_KEY)
 }
 
+export const setUserId = (userId: number) => {
+  sessionStore.set(USER_ID_KEY, String(userId))
+}
+
+export const getUserId = (): number | null => {
+  const id = sessionStore.get(USER_ID_KEY)
+  return id ? Number(id) : null
+}
+
+export const clearUserId = () => {
+  sessionStore.remove(USER_ID_KEY)
+}
+
 export const clearAllAuth = () => {
   sessionStore.remove(ROLE_KEY)
   sessionStore.remove(ROLE_NAME_KEY)
   sessionStore.remove(TOKEN_KEY)
+  sessionStore.remove(USER_ID_KEY)
 }

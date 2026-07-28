@@ -70,8 +70,8 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowDownBold, EditPen, Operation, Plus, TurnOff } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type Action, type UploadProps } from 'element-plus'
-import { clearAllAuth, getToken } from '@/utils/localStorage'
-import { updatePasswordApi, uploadAvatarApi, userTokenAuthApi, userUpdateInfoApi } from '@/api/user-api'
+import { clearAllAuth, getRoleName } from '@/utils/localStorage'
+import { logoutApi, updatePasswordApi, uploadAvatarApi, userTokenAuthApi, userUpdateInfoApi } from '@/api/user-api'
 import type { BaseUserUpdateDTO, BaseUserVO, UserUpdatePasswordDTO } from '@/types/user'
 
 const router = useRouter()
@@ -92,9 +92,9 @@ const getImageUrl = (filePath?: string) => {
 }
 
 const loadUser = async () => {
-  const token = getToken()
-  if (!token) return
-  const response = await userTokenAuthApi(token)
+  const roleName = getRoleName()
+  if (!roleName) return
+  const response = await userTokenAuthApi()
   baseUser.value = response.data ?? {}
 }
 
@@ -157,6 +157,7 @@ const logout = () => {
     confirmButtonText: 'OK',
     callback: (action: Action) => {
       if (action === 'confirm') {
+        logoutApi().finally(() => {})
         clearAllAuth()
         router.push('/')
         ElMessage.success('退出登录成功')

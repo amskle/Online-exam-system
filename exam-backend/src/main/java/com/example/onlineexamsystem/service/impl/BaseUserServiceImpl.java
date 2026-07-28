@@ -16,14 +16,17 @@ import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
 import com.example.onlineexamsystem.service.FileUploadService;
 import com.example.onlineexamsystem.utils.JwtUtil;
+import com.example.onlineexamsystem.utils.RedisUtil;
 import io.jsonwebtoken.Claims;
 import lombok.AllArgsConstructor;
 import org.springframework.beans.BeanUtils;
-import org.springframework.stereotype.Service;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * 基础用户服务实现类
@@ -34,6 +37,7 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
     private final JwtUtil jwtUtil;
     private final FileUploadService fileUploadService;
     private final PasswordEncoder passwordEncoder;
+    private final RedisUtil redisUtil;
 
     /**
      * 登录
@@ -42,33 +46,58 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
      */
     @Override
     public UserLoginResponseVO login(UserLoginDTO userLoginDTO) {
-        // 通过账号查询账户信息
+        String failKey = "login_fail:" + userLoginDTO.getAccount();
+
+        // ① 检查是否已被锁定
+        String failCountStr = redisUtil.get(failKey);
+        if (failCountStr != null && Integer.parseInt(failCountStr) >= 5) {
+            long remainingSeconds = redisUtil.getExpireSeconds(failKey);
+            throw new BusinessException(
+                    "账号已被锁定，请 " + (remainingSeconds / 60 + 1) + " 分钟后重试");
+        }
+
+        // ② 查询用户（原有逻辑）
         BaseUser baseUser = this.getOne(
                 new LambdaQueryWrapper<BaseUser>()
                         .eq(BaseUser::getAccount, userLoginDTO.getAccount())
         );
         if (baseUser == null) {
-            throw new BusinessException("账号不存在");
-        }
-        // 密码判断
-        boolean passwordMatched = baseUser.getPassword().startsWith("$2")
-                ? passwordEncoder.matches(userLoginDTO.getPassword(), baseUser.getPassword())
-                : Objects.equals(baseUser.getPassword(), userLoginDTO.getPassword());
-        if (!passwordMatched) {
-            throw new BusinessException("密码错误");
+            recordFailure(failKey);  // 账号不存在也算一次失败
+            throw new BusinessException("账号或密码错误");
         }
         if (Boolean.TRUE.equals(baseUser.getLoginStatus())) {
             throw new BusinessException("账号已被停用，请联系管理员");
         }
-        // 生成token
-        String token = jwtUtil.generateToken(baseUser.getId(), baseUser.getRole());
+
+        // ③ 密码判断
+        boolean passwordMatched = baseUser.getPassword().startsWith("$2")
+                ? passwordEncoder.matches(userLoginDTO.getPassword(), baseUser.getPassword())
+                : Objects.equals(baseUser.getPassword(), userLoginDTO.getPassword());
+        if (!passwordMatched) {
+            recordFailure(failKey);
+            throw new BusinessException("密码错误");
+        }
+
+        // ④ 登录成功 → 清除失败计数
+        redisUtil.delete(failKey);
+
+        // 生成登录版本号（顶号用），存储到 Redis 并写入 JWT
+        String loginVersion = UUID.randomUUID().toString();
+        redisUtil.put("user:login_version:" + baseUser.getId(), loginVersion, Duration.ofDays(7));
+        String token = jwtUtil.generateToken(baseUser.getId(), baseUser.getRole(), loginVersion);
         return UserLoginResponseVO
                 .builder()
                 .status("AUTHENTICATED")
-                .token(token)
-                .role(baseUser.getRole())
+                .userId(baseUser.getId())
                 .roleName(RoleEnum.getByRole(baseUser.getRole()).getDescription())
                 .build();
+    }
+
+    private void recordFailure(String failKey) {
+        long count = redisUtil.recordLoginFailure(failKey, Duration.ofMinutes(15), 5);
+        if (count >= 5) {
+            throw new BusinessException("密码错误次数过多，账号已被锁定15分钟");
+        }
     }
 
     /**

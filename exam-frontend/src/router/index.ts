@@ -87,7 +87,7 @@ const routes: RouteRecordRaw[] = [
                 meta: {
                     title: '科目管理',
                     requiresAuth: true,
-                    roles: [RoleEnum.ADMIN]
+                    roles: [RoleEnum.ADMIN, RoleEnum.TEACHER]
                 }
             },
             {

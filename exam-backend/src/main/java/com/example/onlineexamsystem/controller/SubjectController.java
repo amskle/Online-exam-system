@@ -19,6 +19,7 @@ import java.util.List;
 /**
  * 科目控制器
  */
+
 /**
  * 科目管理控制器
  */
@@ -55,7 +56,7 @@ public class SubjectController {
      * @return Result<PageVO<Subject>>
      */
     @GetMapping("/listPage")
-    @Auth(3)
+    @Auth({2, 3})
     public Result<PageVO<Subject>> listPage(SubjectQueryDTO query) {
         Page<Subject> page = subjectService.page(
                 Page.of(query.getPageNum(), query.getPageSize()),
@@ -93,7 +94,7 @@ public class SubjectController {
      * @return Result<Void>
      */
     @PostMapping
-    @Auth(3)
+    @Auth({2, 3})
     public Result<Void> add(@RequestBody Subject subject) {
         if (!StringUtils.hasText(subject.getName())) {
             throw new BusinessException("科目名称不能为空");
@@ -115,7 +116,7 @@ public class SubjectController {
      * @return Result<Void>
      */
     @PutMapping
-    @Auth(3)
+    @Auth({2, 3})
     public Result<Void> update(@RequestBody Subject subject) {
         subjectService.updateById(subject);
         return Result.success();
@@ -132,7 +133,7 @@ public class SubjectController {
      * @return Result<Void>
      */
     @DeleteMapping("/{id}")
-    @Auth(3)
+    @Auth({2, 3})
     public Result<Void> delete(@PathVariable Integer id) {
         subjectService.removeById(id);
         return Result.success();

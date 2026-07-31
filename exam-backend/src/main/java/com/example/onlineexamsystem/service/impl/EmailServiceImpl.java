@@ -95,7 +95,7 @@ public class EmailServiceImpl implements EmailService {
         BaseUser user = findByAccount(account);
         if (user == null || !passwordMatches(dto.getPassword(), user.getPassword())) {
             recordLoginFailure(failKey);  // 记录失败次数
-            throw new BusinessException("密码错误", 400);
+            throw new BusinessException("账号或密码错误", 400);
         }
         if (Boolean.TRUE.equals(user.getLoginStatus())) {
             throw new BusinessException("账号已被停用，请联系管理员", 403);

@@ -97,7 +97,7 @@ const menus = [
     title: '科目管理',
     description: '维护考试科目与题库分类基础数据',
     icon: Notebook,
-    roles: [RoleEnum.ADMIN]
+    roles: [RoleEnum.ADMIN, RoleEnum.TEACHER]
   },
   {
     path: '/admin-home/questions',

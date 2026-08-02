@@ -17,6 +17,7 @@
         <el-form-item>
           <el-button type="primary" @click="handleSearch">搜索</el-button>
           <el-button @click="resetQuery">重置</el-button>
+          <el-button type="danger" plain @click="handleClearAll">清空所有记录</el-button>
         </el-form-item>
       </el-form>
     </section>
@@ -143,7 +144,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { examRecordDeleteApi, examRecordDetailApi, examRecordGradeApi, examRecordListPageApi } from '@/api/admin-api'
+import { examRecordClearAllApi, examRecordDeleteApi, examRecordDetailApi, examRecordGradeApi, examRecordListPageApi } from '@/api/admin-api'
 import type { ExamRecord, ExamRecordAnswer } from '@/types/admin'
 
 const records = ref<ExamRecord[]>([])
@@ -189,6 +190,26 @@ const removeRecord = async (row: ExamRecord) => {
   await examRecordDeleteApi(row.id)
   ElMessage.success('考试记录已删除')
   loadRecords()
+}
+
+const handleClearAll = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将永久清空数据库中的【所有考试记录】及【答题明细】（常用于压测后重置数据），确定要继续清空吗？',
+      '高危操作二次确认',
+      {
+        confirmButtonText: '确定清空',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    await examRecordClearAllApi()
+    ElMessage.success('所有考试记录已全部清空')
+    loadRecords()
+  } catch {
+    // 用户取消操作
+  }
 }
 
 const typeLabel = (type?: number) => ({ 1: '单选题', 2: '多选题', 3: '判断题', 4: '主观题' }[type ?? 0] ?? '未知')

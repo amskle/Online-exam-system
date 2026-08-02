@@ -23,13 +23,28 @@ exam-frontend/.agents/
 exam-frontend/auto-imports.d.ts
 exam-frontend/components.d.ts
 
-### Environment files ###
+### Environment & Secret files ###
 .env
+.env.*
+**/.env
+**/.env.*
+*.env
 .env.local
 .env.*.local
 .env.docker
 exam-frontend/.env.local
 exam-frontend/.env.*.local
+
+### Personal Documents & Resumes ###
+resume.*
+*.pdf
+*.tex
+
+### Databases & Vector stores ###
+*.db
+*.sqlite
+*.sqlite3
+vector_store.db
 
 ### STS ###
 .apt_generated
@@ -75,3 +90,5 @@ ai-tutor/__pycache__/
 ai-tutor/**/__pycache__/
 ai-tutor/.env
 Tutorial/
+tmp/
+output/

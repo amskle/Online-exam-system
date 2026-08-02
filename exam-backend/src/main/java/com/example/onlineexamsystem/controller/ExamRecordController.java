@@ -85,16 +85,25 @@ public class ExamRecordController {
     }
 
     /**
+     * 一键清空所有考试记录及答题明细（仅管理员权限，便于压力测试重置）
+     *
+     * @return Result<Void>
+     */
+    @DeleteMapping("/clearAll")
+    @Auth(3)
+    @org.springframework.transaction.annotation.Transactional
+    public Result<Void> clearAll() {
+        examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>());
+        examRecordService.remove(new LambdaQueryWrapper<ExamRecord>());
+        return Result.success();
+    }
+
+    /**
      * 删除考试记录（同时清理答题明细）
      *
      * @return Result<Void>
      */
-    /**
-     * 删除考试记录
-     *
-     * @return Result<Void>
-     */
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     public Result<Void> delete(@PathVariable Integer id) {
         examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, id));
         examRecordService.removeById(id);

@@ -1,0 +1,12 @@
+${AnsiColor.BRIGHT_CYAN}
+  _____                      __  __  _             _ 
+ | ____|_  ____ _ _ __ ___  |  \/  |(_)_ __   __| |
+ |  _| \ \/ / _` | '_ ` _ \ | |\/| || | '_ \ / _` |
+ | |___ >  < (_| | | | | | || |  | || | | | | (_| |
+ |_____/_/\_\__,_|_| |_| |_||_|  |_||_|_| |_|\__,_|
+
+${AnsiColor.BRIGHT_BLUE}=============================================================
+${AnsiColor.BRIGHT_YELLOW} :: ExamMind :: Smart Online Exam & AI Learning System
+${AnsiColor.BRIGHT_BLUE}=============================================================
+${AnsiColor.DEFAULT} Spring Boot Version: ${spring-boot.version}
+${AnsiColor.DEFAULT} Application Name:    ${spring.application.name:ExamMind}

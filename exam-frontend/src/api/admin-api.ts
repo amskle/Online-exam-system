@@ -74,6 +74,9 @@ export const examRecordGradeApi = (params: { recordId?: number; answers: Array<{
 export const examRecordDeleteApi = (id: number) =>
   request.delete<Result<void>>(`/examRecord/${id}`)
 
+export const examRecordClearAllApi = () =>
+  request.delete<Result<void>>('/examRecord/clearAll')
+
 export const dashboardOverviewApi = () =>
   request.get<Result<DashboardOverview>>('/admin/dashboard/overview')
 

@@ -1,16 +1,16 @@
 spring:
   application:
-    name: Online-exam-system
+    name: ExamMind
   datasource:
     url: jdbc:mysql://localhost:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:327510}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # 连接池配置（HikariCP，Spring Boot 默认）
     hikari:
       minimum-idle: 5
-      maximum-pool-size: 20
+      maximum-pool-size: 50
       auto-commit: true
       idle-timeout: 30000
       pool-name: MyHikariCP
@@ -28,14 +28,17 @@ spring:
       database: 0
       lettuce:
         pool:
-          max-active: 8
+#          max-active: 8
+          max-active: 50
           max-idle: 8
           min-idle: 0
-          max-wait: 100ms
+          max-wait: 2000ms
+  #          max-wait: 100ms
+
   mail:
     host: smtp.qq.com
     port: 465
-    username: ${MAIL_USERNAME:2061133513@qq.com}
+    username: ${MAIL_USERNAME:your_email@qq.com}
     password: ${MAIL_AUTH_CODE:}
     properties:
       mail:

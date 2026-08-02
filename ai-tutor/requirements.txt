@@ -1,5 +1,5 @@
 # FastAPI + 异步支持
-fastapi==0.115.6
+fastapi>=0.141.0
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 

@@ -44,7 +44,7 @@ docker compose --env-file .env.docker up -d --build
 
 ```
 ┌─ 教师端（出题助手）─────────────────────────────┐
-│  📄 上传知识库（PDF/TXT，自动按题号分块入库）      │
+│  📄 上传知识库（PDF/TXT/MD/DOCX/PPTX，格式+结构感知分块） │
 │  💬 提问 — 基于知识库的 RAG 问答                  │
 │  🧠 生成题目 — 检索参考题 → LLM 生成 → 质检 → 入库 │
 │  题型：单选 / 多选 / 判断 / 主观                  │
@@ -60,7 +60,7 @@ docker compose --env-file .env.docker up -d --build
 
 | 能力 | 实现 |
 |---|---|
-| 知识库检索 | ChromaDB + BGE 中文 Embedding，语义搜索 + 关键词后备 |
+| 知识库检索 | ChromaDB + BGE 中文 Embedding，语义搜索 + 关键词候选 + RRF 混合 |
 | 出题流水线 | LangGraph 状态机：需求理解 → 检索 → 生成 → 质检 → 入库 |
 | 答疑对话 | SSE 流式输出，服务端加载上下文，前端零敏感数据 |
 | 答案防泄露 | 确定性正则 + LLM 二次校验，触发即安全重生成 |

@@ -150,7 +150,7 @@ const goBack = () => {
       <div class="mail-mark" aria-hidden="true">
         <Message />
       </div>
-      <p class="product">狗子在线考试</p>
+      <p class="product">ExamMind在线考试</p>
       <h1 id="verify-title">邮箱验证</h1>
       <p v-if="needsEmail" class="hint">当前账号尚未绑定邮箱</p>
       <p v-else class="hint">验证码已发送至 <strong>{{ challenge?.maskedEmail }}</strong></p>

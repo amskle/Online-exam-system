@@ -4,7 +4,7 @@ import { getToken } from '@/utils/localStorage'
 
 const aiClient = axios.create({
   baseURL: import.meta.env.VITE_AI_BASE_URL || '/ai',
-  timeout: 60000,
+  timeout: 300000,
   withCredentials: true,
 })
 
@@ -74,7 +74,25 @@ export interface TeacherGenerateData {
 export interface TeacherChatData {
   reply: string
   session_id: string
-  sources: { source_file: string; question_index: number; preview: string }[]
+  sources: {
+    source_file: string
+    question_index: number
+    section_title?: string
+    section_path?: string
+    format?: string
+    preview: string
+  }[]
+}
+
+export interface DocumentUploadData {
+  file_name: string
+  subject_name: string
+  chunk_count: number
+  format: string
+  structure_type: string
+  chunking_strategy: string
+  warnings: string[]
+  message: string
 }
 
 // ── 会话历史 ──
@@ -137,10 +155,11 @@ export const teacherApi = {
     const form = new FormData()
     form.append('file', file)
     form.append('subject_name', subjectName)
+    form.append('last_modified', String(file.lastModified))
     const r: any = await aiClient.post('/teacher/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
-    return r.data
+    return r.data as DocumentUploadData
   },
 
   /** 获取出题历史会话列表 */

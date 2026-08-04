@@ -127,6 +127,10 @@ class DocumentUploadData(BaseModel):
     file_name: str
     subject_name: str
     chunk_count: int
+    format: str
+    structure_type: str
+    chunking_strategy: str
+    warnings: list[str] = Field(default_factory=list)
     message: str
 
 

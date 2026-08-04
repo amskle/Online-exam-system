@@ -79,7 +79,7 @@
               <el-input-number v-model="genCount" :min="1" :max="20" size="small" style="width:80px" />
               <el-input v-model="genExtra" placeholder="额外要求（可选）" size="small" style="width:140px" />
               <div class="upload-row">
-                <input ref="fileInputRef" type="file" accept=".pdf,.txt" hidden @change="onFileSelected" />
+                <input ref="fileInputRef" type="file" accept=".pdf,.txt,.md,.docx,.pptx" hidden @change="onFileSelected" />
                 <el-button size="small" :icon="Upload" @click="openFilePicker" :loading="uploading">
                   {{ uploading ? '上传中…' : '📄 上传知识库' }}
                 </el-button>
@@ -251,14 +251,15 @@ async function onFileSelected(e: Event) {
   if (!file) return
 
   // 校验格式
-  if (!file.name.toLowerCase().endsWith('.pdf') && !file.name.toLowerCase().endsWith('.txt')) {
-    ElMessage.warning('仅支持 PDF 和 TXT 格式')
+  const supported = ['.pdf', '.txt', '.md', '.docx', '.pptx']
+  if (!supported.some(ext => file.name.toLowerCase().endsWith(ext))) {
+    ElMessage.warning('仅支持 PDF、TXT、MD、DOCX、PPTX 格式')
     input.value = ''
     return
   }
-  // 校验大小 (≤ 16MB)
-  if (file.size > 16 * 1024 * 1024) {
-    ElMessage.warning('文件大小不能超过 16MB')
+  // 校验大小 (≤ 50MB)
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.warning('文件大小不能超过 50MB')
     input.value = ''
     return
   }
@@ -267,7 +268,12 @@ async function onFileSelected(e: Event) {
   try {
     const subjectName = genSubjectName.value || '未知科目'
     const result: any = await teacherApi.upload(file, subjectName)
-    ElMessage.success(`「${file.name}」上传成功，共入库 ${result?.chunk_count ?? '?'} 个知识条目`)
+    const typeLabel = result?.structure_type === 'chapter'
+      ? '章节型教材'
+      : result?.structure_type === 'question_bank'
+        ? '题库'
+        : '零散笔记'
+    ElMessage.success(`「${file.name}」识别为${typeLabel}，共入库 ${result?.chunk_count ?? '?'} 个知识块`)
     // 刷新推荐以体现新知识
     await fetchRecommend()
   } catch (err: any) {
@@ -450,10 +456,15 @@ async function sendMessage() {
         reply += '\n\n📚 参考来源：'
         const seen = new Set<string>()
         data.sources.forEach(s => {
-          const key = `${s.source_file}#${s.question_index}`
+          const location = s.section_path || s.section_title
+          const key = location
+            ? `${s.source_file}#${location}`
+            : `${s.source_file}#${s.question_index}`
           if (!seen.has(key)) {
             seen.add(key)
-            reply += `\n  - ${s.source_file} 第${s.question_index}题`
+            reply += location
+              ? `\n  - ${s.source_file} ${location}`
+              : `\n  - ${s.source_file} 第${s.question_index}题`
           }
         })
       }

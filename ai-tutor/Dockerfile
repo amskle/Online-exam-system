@@ -7,8 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖（Docker 层缓存）
-COPY requirements.txt .
+COPY requirements.txt requirements-unstructured.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 可选：复杂 PDF/DOCX 结构解析
+ARG INSTALL_UNSTRUCTURED=false
+RUN if [ "$INSTALL_UNSTRUCTURED" = "true" ]; then pip install --no-cache-dir -r requirements-unstructured.txt; fi
 
 # 源码
 COPY . .

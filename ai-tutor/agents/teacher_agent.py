@@ -14,6 +14,7 @@ from agents.common import (
     has_fatal,
 )
 from config.settings import get_settings
+from rag.keywords import extract_keyword_terms
 from rag.retriever import retriever
 from utils.exam_bridge import exam_bridge
 
@@ -114,7 +115,11 @@ async def understand_requirement(state: TeacherState) -> TeacherState:
 
 async def retrieve_references(state: TeacherState) -> TeacherState:
     """节点2: 相似检索 — 从教师知识库中找到参考题"""
-    query = f"{state['subject_name']} {state['requirement_summary']}"
+    query = (
+        f"{state['subject_name']} "
+        f"{state.get('extra_requirement', '')} "
+        f"{state['requirement_summary']}"
+    )
     try:
         docs = await retriever.retrieve(
             query=query,
@@ -122,9 +127,25 @@ async def retrieve_references(state: TeacherState) -> TeacherState:
             top_k=state["count"] * 2,
             subject_filter=state["subject_name"],
         )
+        if docs:
+            requirement_terms = extract_keyword_terms(
+                f"{state.get('extra_requirement', '')} {state['requirement_summary']}"
+            )
+            if requirement_terms:
+                matched = any(
+                    any(term in doc["document"].lower() for term in requirement_terms)
+                    for doc in docs
+                )
+                if not matched:
+                    docs = []
+                    state["warnings"].append(
+                        "知识库检索结果与出题需求不匹配，已降级为自主生成"
+                    )
         state["retrieved_docs"] = docs
         if not docs:
-            state["warnings"].append("教师知识库中未找到相似参考题，将完全依赖 LLM 生成")
+            state["warnings"].append(
+                f"教师知识库中未找到「{state['subject_name']}」的匹配内容，将自发生成"
+            )
     except Exception as e:
         logger.warning("教师检索失败: %s", e)
         state["warnings"].append(f"检索失败（不影响生成）: {e!s}")
@@ -145,9 +166,14 @@ async def generate_questions(state: TeacherState) -> TeacherState:
 
     # 构建参考题上下文
     ref_text = ""
+    kb_instruction = "知识库中没有匹配内容，请自主生成题目，不要编造来源。"
     if state["retrieved_docs"]:
-        ref_text = "参考题目：\n" + "\n---\n".join(
+        ref_text = "参考知识库内容：\n" + "\n---\n".join(
             d["document"][:800] for d in state["retrieved_docs"]
+        )
+        kb_instruction = (
+            "请优先从参考知识库内容中提取考点和表述风格；"
+            "如果参考内容不足以覆盖需求，再结合你自己的知识补充。"
         )
 
     while remaining > 0 and attempts < max_attempts:
@@ -160,6 +186,9 @@ async def generate_questions(state: TeacherState) -> TeacherState:
 这是第 {attempts + 1} 批，已生成 {len(all_questions)} 道，还需 {remaining} 道。请生成与已生成题不重复的新题。
 
 {ref_text}
+
+生成策略：
+{kb_instruction}
 
 请严格按以下 JSON 数组格式输出:
 [

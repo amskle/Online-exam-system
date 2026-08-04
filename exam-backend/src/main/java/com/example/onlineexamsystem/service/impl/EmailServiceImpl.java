@@ -17,6 +17,7 @@ import com.example.onlineexamsystem.utils.JwtUtil;
 import com.example.onlineexamsystem.utils.RedisUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -40,6 +41,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class EmailServiceImpl implements EmailService {
     private static final String STATUS_AUTHENTICATED = "AUTHENTICATED";
@@ -217,21 +219,31 @@ public class EmailServiceImpl implements EmailService {
         try {
             emailUtil.sendVerificationCode(email, code, purpose);
         } catch (RuntimeException ex) {
+            log.error("验证码邮件发送失败，email={}, purpose={}", email, purpose, ex);
             redisUtil.delete(key);
+            redisUtil.delete(emailCooldownKey(email));
+            redisUtil.decrementIfExists(emailDailyKey(email));
             throw new BusinessException("验证码邮件发送失败，请检查邮件配置后重试");
         }
         return challengeResponse(STATUS_VERIFICATION_REQUIRED, challengeId, email);
     }
 
     private void reserveEmailSend(String email) {
-        String emailHash = hash(email);
-        if (!redisUtil.setIfAbsent("auth:email:cooldown:" + emailHash, "1", sendCooldown)) {
+        if (!redisUtil.setIfAbsent(emailCooldownKey(email), "1", sendCooldown)) {
             throw new BusinessException("验证码发送过于频繁，请稍后再试", 429);
         }
-        String dailyKey = "auth:email:daily:" + LocalDate.now() + ":" + emailHash;
-        if (redisUtil.increment(dailyKey, Duration.ofDays(2)) > dailyLimit) {
+        if (redisUtil.increment(emailDailyKey(email), Duration.ofDays(2)) > dailyLimit) {
+            redisUtil.delete(emailCooldownKey(email));
             throw new BusinessException("该邮箱今日发送次数已达上限", 429);
         }
+    }
+
+    private String emailCooldownKey(String email) {
+        return "auth:email:cooldown:" + hash(email);
+    }
+
+    private String emailDailyKey(String email) {
+        return "auth:email:daily:" + LocalDate.now() + ":" + hash(email);
     }
 
     private BaseUser createRegisteredUser(Map<String, String> challenge) {

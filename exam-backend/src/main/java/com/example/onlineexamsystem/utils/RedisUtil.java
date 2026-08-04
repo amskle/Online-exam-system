@@ -97,6 +97,18 @@ public class RedisUtil {
         return Boolean.TRUE.equals(redisTemplate.hasKey(key));
     }
 
+    public long decrementIfExists(String key) {
+        if (!hasKey(key)) {
+            return 0;
+        }
+        Long value = redisTemplate.opsForValue().decrement(key);
+        if (value != null && value <= 0) {
+            redisTemplate.delete(key);
+            return 0;
+        }
+        return value == null ? 0 : value;
+    }
+
     public void delete(String key) {
         redisTemplate.delete(key);
     }

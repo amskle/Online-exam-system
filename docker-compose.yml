@@ -83,6 +83,15 @@ services:
       # 数据目录
       VECTOR_DB_PATH: /app/data/chroma_store
       SESSION_DB_PATH: /app/data/chat_sessions.db
+      # RAG 分块与检索参数
+      USE_UNSTRUCTURED: ${USE_UNSTRUCTURED:-false}
+      NOTES_SOFT_TOKEN_LIMIT: ${NOTES_SOFT_TOKEN_LIMIT:-256}
+      NOTES_HARD_TOKEN_LIMIT: ${NOTES_HARD_TOKEN_LIMIT:-400}
+      CHUNK_OVERLAP_RATIO: ${CHUNK_OVERLAP_RATIO:-0.15}
+      MIN_CHUNK_TOKENS: ${MIN_CHUNK_TOKENS:-50}
+      HYBRID_TOP_K: ${HYBRID_TOP_K:-20}
+      KEYWORD_MAX_DOCS: ${KEYWORD_MAX_DOCS:-50000}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
     depends_on:
       - backend
     volumes:

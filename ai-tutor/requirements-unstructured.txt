@@ -1,0 +1,3 @@
+# 可选：复杂 PDF/DOCX 结构解析依赖。
+# 默认不安装；设置 USE_UNSTRUCTURED=true 时再安装。
+unstructured[pdf,docx,pptx]>=0.15.0

@@ -92,3 +92,4 @@ ai-tutor/.env
 Tutorial/
 tmp/
 output/
+CLAUDE.md

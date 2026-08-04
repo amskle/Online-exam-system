@@ -32,10 +32,19 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 100
     retrieval_top_k: int = 5
-    embedding_max_chars: int = 500  # BAAI/bge-large-zh-v1.5 上限 512 tokens，中文字符按 1 token/字截断
+    embedding_max_chars: int = 8000  # BAAI/bge-large-zh-v1.5 上限 512 tokens，中文字符按 1 token/字截断 改用bge-m3上限8192
+    use_unstructured: bool = False
+    document_classifier: str = "rule"
+    notes_soft_token_limit: int = 256
+    notes_hard_token_limit: int = 400
+    chunk_overlap_ratio: float = 0.15
+    min_chunk_tokens: int = 50
+    hybrid_top_k: int = 20
+    keyword_max_docs: int = 50000
+    max_upload_mb: int = 50
 
     # ── Agent ──
-    llm_timeout: float = 60.0
+    llm_timeout: float = 100.0
     generate_batch_size: int = 5  # 单次 LLM 调用生成的最大题数
     generate_max_attempts: int = 4  # 数量不足时的最大补生成轮数
     session_history_limit: int = 12  # 注入 prompt 的对话历史条数

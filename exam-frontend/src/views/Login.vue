@@ -172,7 +172,7 @@ onUnmounted(() => {
           <div class="logo">
             <!-- <div class="logo-mark" src=""></div> -->
             <img class="logo-mark" src="../assets/logo.png" alt="">
-            <div class="logo-text">狗子在线考试</div>
+            <div class="logo-text">ExamMind在线考试</div>
           </div>
 
           <h1 class="headline">
@@ -328,7 +328,7 @@ onUnmounted(() => {
             <p class="switch-line">已有账号？<a @click="switchTab('login')">直接登录</a></p>
           </div>
 
-          <p class="foot">狗子 · 在线考试系统 © 2026</p>
+          <p class="foot">ExamMind · 在线考试系统 © 2026</p>
         </div>
       </div>
     </div>

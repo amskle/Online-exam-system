@@ -5,9 +5,27 @@ import chromadb
 from chromadb.config import Settings as ChromaSettings
 
 from config.settings import get_settings
+from rag.keywords import extract_keyword_terms
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.vector_store")
+
+
+_DEFAULT_META = {
+    "subject": "",
+    "source_file": "",
+    "format": "",
+    "structure_type": "",
+    "chunk_type": "",
+    "chunk_index": 0,
+    "question_index": 0,
+    "section_path": "",
+    "section_title": "",
+    "page_range": "",
+    "created_at": 0,
+    "modified_at": 0,
+    "uploaded_at": 0,
+}
 
 
 class VectorStore:
@@ -38,15 +56,7 @@ class VectorStore:
     ):
         if not ids:
             return
-        # ChromaDB 的 metadatas 要求所有值都是 str/int/float/bool
-        clean_metas = [
-            {
-                "subject": str(m.get("subject", "")),
-                "source_file": str(m.get("source_file", "")),
-                "question_index": int(m.get("question_index", 0)),
-            }
-            for m in metadatas
-        ]
+        clean_metas = [self._clean_metadata(m) for m in metadatas]
         self._teacher.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=clean_metas)
 
     def add_to_student(
@@ -58,15 +68,31 @@ class VectorStore:
     ):
         if not ids:
             return
-        clean_metas = [
-            {
-                "subject": str(m.get("subject", "")),
-                "source_file": str(m.get("source_file", "")),
-                "question_index": int(m.get("question_index", 0)),
-            }
-            for m in metadatas
-        ]
+        clean_metas = [self._clean_metadata(m) for m in metadatas]
         self._student.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=clean_metas)
+
+    @staticmethod
+    def _clean_metadata(metadata: dict) -> dict:
+        cleaned = {}
+        for key, default in _DEFAULT_META.items():
+            value = metadata.get(key, default)
+            if key in ("chunk_index", "question_index"):
+                cleaned[key] = int(value or 0)
+            elif key in ("created_at", "modified_at", "uploaded_at"):
+                try:
+                    cleaned[key] = float(value or 0)
+                except (TypeError, ValueError):
+                    cleaned[key] = 0.0
+            else:
+                cleaned[key] = str(value or "")
+        return cleaned
+
+    @staticmethod
+    def _metadata_from(meta: dict) -> dict:
+        return {
+            key: meta.get(key, default)
+            for key, default in _DEFAULT_META.items()
+        }
 
     # ── 检索 ──
 
@@ -86,8 +112,8 @@ class VectorStore:
     ) -> list[dict]:
         return self._search(self._student, query_embedding, top_k, subject_filter)
 
-    @staticmethod
     def _search(
+        self,
         collection,
         query_embedding: list[float],
         top_k: int | None = None,
@@ -119,12 +145,95 @@ class VectorStore:
             output.append({
                 "id": ids[i],
                 "document": docs[i] if i < len(docs) else "",
-                "metadata": {
-                    "subject": meta.get("subject", ""),
-                    "source_file": meta.get("source_file", ""),
-                    "question_index": meta.get("question_index", 0),
-                },
+                "metadata": self._metadata_from(meta),
                 "distance": float(dists[i]) if i < len(dists) else 1.0,
+            })
+        return output
+
+    def search_keyword(
+        self,
+        collection: str,
+        query: str,
+        top_k: int | None = None,
+        subject_filter: str | None = None,
+    ) -> list[dict]:
+        """基于 Chroma $contains 的关键词候选查询，超过 5 万条时降级为空。"""
+        col = self._teacher if collection == "teacher" else self._student
+        try:
+            if col.count() > settings.keyword_max_docs:
+                logger.warning(
+                    "%s 超过 %d 条，关键词检索降级为纯语义检索",
+                    collection, settings.keyword_max_docs,
+                )
+                return []
+        except Exception:
+            return []
+
+        terms = extract_keyword_terms(query)
+        conditions: list[dict] = []
+        for term in terms:
+            conditions.append({"$contains": term})
+            if any(ch.isascii() and ch.isalpha() for ch in term):
+                conditions.append({"$contains": term.lower()})
+        if not conditions:
+            return []
+
+        where_document: dict = {"$or": conditions} if len(conditions) > 1 else conditions[0]
+        where = {"subject": subject_filter} if subject_filter else None
+        k = top_k or settings.hybrid_top_k
+
+        def _get(criteria):
+            return col.get(
+                where_document=criteria,
+                where=where,
+                include=["documents", "metadatas"],
+                limit=k * 2,
+            )
+
+        try:
+            results = _get(where_document)
+        except Exception:
+            logger.warning("ChromaDB $or 关键词查询失败，逐词回退", exc_info=True)
+            merged: dict[str, dict] = {}
+            for cond in conditions:
+                try:
+                    partial = _get(cond)
+                    self._merge_results(merged, partial)
+                except Exception:
+                    continue
+            return list(merged.values())
+
+        return self._build_results(results)
+
+    @staticmethod
+    def _merge_results(target: dict[str, dict], partial: dict):
+        ids = partial.get("ids", [])
+        docs = partial.get("documents", [])
+        metas = partial.get("metadatas", [])
+        for i, doc_id in enumerate(ids):
+            if doc_id in target:
+                continue
+            meta = metas[i] if i < len(metas) and metas[i] else {}
+            target[doc_id] = {
+                "id": doc_id,
+                "document": docs[i] if i < len(docs) else "",
+                "metadata": VectorStore._metadata_from(meta),
+                "distance": 1.0,
+            }
+
+    @staticmethod
+    def _build_results(results: dict) -> list[dict]:
+        output = []
+        ids = results.get("ids", [])
+        docs = results.get("documents", [])
+        metas = results.get("metadatas", [])
+        for i, doc_id in enumerate(ids):
+            meta = metas[i] if i < len(metas) and metas[i] else {}
+            output.append({
+                "id": doc_id,
+                "document": docs[i] if i < len(docs) else "",
+                "metadata": VectorStore._metadata_from(meta),
+                "distance": 1.0,
             })
         return output
 
@@ -149,11 +258,7 @@ class VectorStore:
             output.append({
                 "id": ids[i],
                 "document": docs[i] if i < len(docs) else "",
-                "metadata": {
-                    "subject": meta.get("subject", ""),
-                    "source_file": meta.get("source_file", ""),
-                    "question_index": meta.get("question_index", 0),
-                },
+                "metadata": self._metadata_from(meta),
             })
         return output
 

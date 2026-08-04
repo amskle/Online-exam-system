@@ -32,7 +32,7 @@ class EmbeddingService:
             if len(t) > settings.embedding_max_chars:
                 truncated.append(t[:settings.embedding_max_chars])
                 logger.warning(
-                    "文本 #%d 过长 (%d chars)，已截断至 %d chars（模型上限 ~512 tokens）",
+                    "文本 #%d 过长 (%d chars)，已截断至 %d chars（模型上限 ~8192 tokens）",
                     i, len(t), settings.embedding_max_chars,
                 )
             else:

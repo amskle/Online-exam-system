@@ -13,6 +13,7 @@ from models.schemas import (
 )
 from agents.common import chat_text, TYPE_NAMES, DIFF_NAMES
 from agents.teacher_agent import teacher_graph
+from config.settings import get_settings
 from utils.jwt_util import verify_token, ROLE_TEACHER, ROLE_ADMIN
 from utils.exam_bridge import exam_bridge
 from utils.session_store import session_store
@@ -23,15 +24,177 @@ from rag.retriever import retriever
 import uuid
 import json
 import os
+import re
+import time
 
 router = APIRouter()
 logger = logging.getLogger("ai-tutor.router.teacher")
+settings = get_settings()
 
 
 def _extract_user_id(claims: dict) -> int:
     """从 JWT claims 提取 user_id（Spring Boot 将 sub 存为字符串，需转为 int）"""
     raw = claims.get("sub") or claims.get("userId") or 0
     return int(raw)
+
+
+def _looks_like_generate_request(message: str) -> bool:
+    """判断教师聊天消息是否是出题请求。"""
+    return ("生成" in message and "题" in message) or "出题" in message
+
+
+def _parse_generate_request(message: str, fallback_subject: str | None = None) -> dict:
+    """从自然语言中解析出题参数，解析不到时使用默认值或聊天当前科目。"""
+    count_match = re.search(r"(\d+)\s*道", message)
+    count = max(1, min(20, int(count_match.group(1)))) if count_match else 5
+
+    if "判断" in message:
+        question_type = 3
+    elif "多选" in message:
+        question_type = 2
+    elif "主观" in message:
+        question_type = 4
+    elif "单选" in message:
+        question_type = 1
+    else:
+        question_type = 1
+
+    if "困难" in message:
+        difficulty = 3
+    elif "简单" in message:
+        difficulty = 1
+    elif "中等" in message:
+        difficulty = 2
+    else:
+        difficulty = 2
+
+    subject_name = fallback_subject
+    explicit_match = re.search(r"(?:为|给)\s*(.+?)\s*科目", message)
+    about_match = re.search(
+        r"关于\s*([A-Za-z0-9]+|[\u4e00-\u9fff]{1,20}?)(?=的|难度|单选|多选|判断|主观|题)",
+        message,
+    )
+    if explicit_match:
+        subject_name = explicit_match.group(1).strip()
+    elif subject_name is None and about_match:
+        subject_name = about_match.group(1)
+
+    return {
+        "subject_name": subject_name,
+        "question_type": question_type,
+        "difficulty": difficulty,
+        "count": count,
+        "extra_requirement": message,
+    }
+
+
+async def _resolve_subject_id(token: str, subject_name: str) -> tuple[int | None, str]:
+    """按名称精确或模糊匹配科目，返回 (subjectId, 规范化科目名)。"""
+    subjects = await exam_bridge.get_subjects(token)
+    lower = subject_name.strip().lower()
+
+    exact = next((s for s in subjects if str(s.get("name", "")).strip().lower() == lower), None)
+    if exact:
+        return exact.get("id"), str(exact.get("name", subject_name))
+
+    fuzzy = next(
+        (
+            s for s in subjects
+            if lower in str(s.get("name", "")).lower() or str(s.get("name", "")).lower() in lower
+        ),
+        None,
+    )
+    if fuzzy:
+        return fuzzy.get("id"), str(fuzzy.get("name", subject_name))
+    return None, subject_name
+
+
+async def _generate_and_build_reply(
+    token: str,
+    user_id: int,
+    subject_id: int,
+    subject_name: str,
+    question_type: int,
+    difficulty: int,
+    count: int,
+    extra_requirement: str = "",
+    session_title: str = "",
+    user_message: str = "",
+) -> tuple[str, dict]:
+    """运行完整出题流水线并保存会话，返回 (回复文本, 响应数据)。"""
+    state = {
+        "subject_id": subject_id,
+        "subject_name": subject_name,
+        "question_type": question_type,
+        "difficulty": difficulty,
+        "count": count,
+        "extra_requirement": extra_requirement,
+        "token": token,
+        "requirement_summary": "",
+        "retrieved_docs": [],
+        "generated_questions": [],
+        "quality_checked": [],
+        "saved_ids": [],
+        "failed_questions": [],
+        "warnings": [],
+        "fatal_error": "",
+    }
+
+    try:
+        result: dict = await teacher_graph.ainvoke(state)
+    except Exception as e:
+        logger.exception("教师智能体执行异常")
+        raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
+
+    if result.get("fatal_error"):
+        raise HTTPException(status_code=500, detail=result["fatal_error"])
+
+    questions = result.get("quality_checked", result.get("generated_questions", []))
+    saved_ids = result.get("saved_ids", [])
+    warnings = result.get("warnings", [])
+
+    type_name = TYPE_NAMES.get(question_type, "题目")
+    diff_name = DIFF_NAMES.get(difficulty, "中等")
+    default_title = f"{subject_name} · {type_name} · {diff_name} x{count}"
+    sid = session_store.new_session_id()
+    session_store.ensure_session(sid, user_id, 'teacher', session_title or default_title)
+
+    default_user_msg = f"为「{subject_name}」生成{count}道{type_name}（难度：{diff_name}）"
+    if extra_requirement:
+        default_user_msg += f"\n额外要求：{extra_requirement}"
+    session_store.append(sid, user_id, "user", user_message or default_user_msg)
+
+    assistant_msg = f"✅ 已生成并入库 {len(saved_ids)} 道题目！\n\n"
+    question_list = questions[:len(saved_ids)] if len(questions) >= len(saved_ids) else questions
+    for i, q in enumerate(question_list):
+        q_content = q.get('content', '') if isinstance(q, dict) else getattr(q, 'content', '')
+        q_answer = q.get('answer', '') if isinstance(q, dict) else getattr(q, 'answer', '')
+        q_analysis = q.get('analysis', '') if isinstance(q, dict) else getattr(q, 'analysis', '')
+        q_opts = q.get('options', None) if isinstance(q, dict) else getattr(q, 'options', None)
+        idx = saved_ids[i] if i < len(saved_ids) else '?'
+        assistant_msg += f"📝 第{i+1}题 (ID:{idx})\n{q_content}\n"
+        if q_opts:
+            try:
+                opt_list = json.loads(q_opts) if isinstance(q_opts, str) else q_opts
+                if isinstance(opt_list, list):
+                    for j, o in enumerate(opt_list):
+                        assistant_msg += f"  {chr(65+j)}. {o}\n"
+            except (json.JSONDecodeError, TypeError):
+                assistant_msg += f"  选项: {q_opts}\n"
+        assistant_msg += f"  答案: {q_answer}\n  解析: {q_analysis}\n\n"
+
+    if failed_list := result.get("failed_questions", []):
+        assistant_msg += f"\n⚠️ {len(failed_list)} 道题入库失败"
+    session_store.append(sid, user_id, "assistant", assistant_msg)
+
+    data = {
+        "questions": questions,
+        "saved_ids": saved_ids,
+        "failed_questions": result.get("failed_questions", []),
+        "warnings": warnings,
+        "session_id": sid,
+    }
+    return assistant_msg, data
 
 
 # ── 权限依赖 ──
@@ -127,87 +290,86 @@ async def generate_questions(
     token, claims = auth
     user_id = _extract_user_id(claims)
 
-    state = {
-        "subject_id": req.subject_id,
-        "subject_name": req.subject_name,
-        "question_type": req.question_type,
-        "difficulty": req.difficulty,
-        "count": req.count,
-        "extra_requirement": req.extra_requirement or "",
-        "token": token,
-        "requirement_summary": "",
-        "retrieved_docs": [],
-        "generated_questions": [],
-        "quality_checked": [],
-        "saved_ids": [],
-        "failed_questions": [],
-        "warnings": [],
-        "fatal_error": "",
-    }
-
     try:
-        result: dict = await teacher_graph.ainvoke(state)
-    except Exception as e:
-        logger.exception("教师智能体执行异常")
-        raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
-
-    if result.get("fatal_error"):
-        return ApiResponse(code=500, message=result["fatal_error"], data={
-            "questions": result.get("generated_questions", []),
-            "saved_ids": result.get("saved_ids", []),
-            "failed_questions": result.get("failed_questions", []),
-            "warnings": result.get("warnings", []),
-        })
-
-    questions = result.get("quality_checked", result.get("generated_questions", []))
-    saved_ids = result.get("saved_ids", [])
-    warnings = result.get("warnings", [])
-
-    # ── 保存到历史会话 ──
-    type_name = TYPE_NAMES.get(req.question_type, "题目")
-    diff_name = DIFF_NAMES.get(req.difficulty, "中等")
-    session_title = f"{req.subject_name} · {type_name} · {diff_name} x{req.count}"
-    sid = session_store.new_session_id()
-    session_store.ensure_session(sid, user_id, 'teacher', session_title)
-
-    user_msg = f"为「{req.subject_name}」生成{req.count}道{type_name}（难度：{diff_name}）"
-    if req.extra_requirement:
-        user_msg += f"\n额外要求：{req.extra_requirement}"
-    session_store.append(sid, user_id, "user", user_msg)
-
-    assistant_msg = f"✅ 已生成并入库 {len(saved_ids)} 道题目！\n\n"
-    question_list = questions[:len(saved_ids)] if len(questions) >= len(saved_ids) else questions
-    for i, q in enumerate(question_list):
-        q_content = q.get('content', '') if isinstance(q, dict) else getattr(q, 'content', '')
-        q_answer = q.get('answer', '') if isinstance(q, dict) else getattr(q, 'answer', '')
-        q_analysis = q.get('analysis', '') if isinstance(q, dict) else getattr(q, 'analysis', '')
-        q_opts = q.get('options', None) if isinstance(q, dict) else getattr(q, 'options', None)
-        idx = saved_ids[i] if i < len(saved_ids) else '?'
-        assistant_msg += f"📝 第{i+1}题 (ID:{idx})\n{q_content}\n"
-        if q_opts:
-            try:
-                opt_list = json.loads(q_opts) if isinstance(q_opts, str) else q_opts
-                if isinstance(opt_list, list):
-                    for j, o in enumerate(opt_list):
-                        assistant_msg += f"  {chr(65+j)}. {o}\n"
-            except (json.JSONDecodeError, TypeError):
-                assistant_msg += f"  选项: {q_opts}\n"
-        assistant_msg += f"  答案: {q_answer}\n  解析: {q_analysis}\n\n"
-
-    if failed_list := result.get("failed_questions", []):
-        assistant_msg += f"\n⚠️ {len(failed_list)} 道题入库失败"
-    session_store.append(sid, user_id, "assistant", assistant_msg)
+        _, data = await _generate_and_build_reply(
+            token=token,
+            user_id=user_id,
+            subject_id=req.subject_id,
+            subject_name=req.subject_name,
+            question_type=req.question_type,
+            difficulty=req.difficulty,
+            count=req.count,
+            extra_requirement=req.extra_requirement or "",
+        )
+    except HTTPException as e:
+        raise
 
     return ApiResponse(
         code=200,
-        message=f"成功生成并入库 {len(saved_ids)} 道题目",
-        data={
-            "questions": questions,
-            "saved_ids": saved_ids,
-            "failed_questions": result.get("failed_questions", []),
-            "warnings": warnings,
-            "session_id": sid,
-        },
+        message=f"成功生成并入库 {len(data['saved_ids'])} 道题目",
+        data=data,
+    )
+
+
+async def _handle_chat_generate(
+    req: TeacherChatRequest,
+    token: str,
+    user_id: int,
+) -> ApiResponse:
+    """聊天中的自然语言出题：解析参数 → 走完整流水线 → 自动入库。"""
+    parsed = _parse_generate_request(req.message, req.subject_name)
+    subject_name = parsed["subject_name"]
+    if not subject_name:
+        return ApiResponse(
+            code=400,
+            message="未识别到科目",
+            data=TeacherChatData(
+                reply="请告诉我科目，例如：生成5道关于Java的单选题。",
+                session_id="",
+                sources=[],
+            ),
+        )
+
+    subject_id, matched_subject = await _resolve_subject_id(token, subject_name)
+    if subject_id is None:
+        return ApiResponse(
+            code=400,
+            message=f"未找到科目「{subject_name}」",
+            data=TeacherChatData(
+                reply=f"未找到科目「{subject_name}」，请先在科目管理中创建该科目后再出题。",
+                session_id="",
+                sources=[],
+            ),
+        )
+
+    try:
+        reply, data = await _generate_and_build_reply(
+            token=token,
+            user_id=user_id,
+            subject_id=subject_id,
+            subject_name=matched_subject,
+            question_type=parsed["question_type"],
+            difficulty=parsed["difficulty"],
+            count=parsed["count"],
+            extra_requirement=parsed["extra_requirement"],
+            session_title=req.message[:50],
+            user_message=req.message,
+        )
+    except HTTPException as e:
+        return ApiResponse(
+            code=e.status_code,
+            message=e.detail,
+            data=TeacherChatData(reply=e.detail, session_id="", sources=[]),
+        )
+
+    return ApiResponse(
+        code=200,
+        message="成功",
+        data=TeacherChatData(
+            reply=reply,
+            session_id=data["session_id"],
+            sources=[],
+        ),
     )
 
 
@@ -222,6 +384,9 @@ async def chat(
     """
     token, claims = auth
     user_id = _extract_user_id(claims)
+
+    if _looks_like_generate_request(req.message):
+        return await _handle_chat_generate(req, token, user_id)
 
     # ── 检索相关文档 ──
     try:
@@ -238,7 +403,7 @@ async def chat(
     # ── 构建提示词 ──
     if docs:
         kb_context = "\n\n---\n".join(
-            f"【来源：{d['metadata'].get('source_file','')} 第{d['metadata'].get('question_index','?')}题】\n{d['document']}"
+            f"【来源：{_format_source_label(d['metadata'])}】\n{d['document']}"
             for d in docs
         )
         prompt = f"""你是一位学科助教，请根据以下知识库内容回答用户的问题。如果知识库中有相关内容，请准确引用；如果知识库内容不足以回答，请如实告知。
@@ -275,6 +440,9 @@ async def chat(
         {
             "source_file": d["metadata"].get("source_file", ""),
             "question_index": d["metadata"].get("question_index", 0),
+            "section_title": d["metadata"].get("section_title", ""),
+            "section_path": d["metadata"].get("section_path", ""),
+            "format": d["metadata"].get("format", ""),
             "preview": d["document"][:120],
         }
         for d in docs
@@ -295,11 +463,12 @@ async def chat(
 async def upload_document(
     file: UploadFile = File(...),
     subject_name: str = Form(...),
+    last_modified: float | None = Form(default=None),
     auth=Depends(require_teacher_or_admin),
 ):
     """
-    上传 PDF/TXT 文档入库。
-    文档会被按题号分块，分别存入 teacher_kb（含完整内容）和 student_kb（剥离答案）。
+    上传 PDF/TXT/MD/DOCX/PPTX 文档入库。
+    文档先识别格式与结构类型，再按对应 Pipeline 分块，分别写入 teacher_kb 和 student_kb。
     学生库使用剥离答案后的文本重新向量化，确保向量与内容一致。
     """
     token, claims = auth
@@ -307,13 +476,28 @@ async def upload_document(
     ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
     tmp_path = f"./upload_temp_{uuid.uuid4().hex}.{ext}"
     content = await file.read()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小不能超过 {settings.max_upload_mb}MB",
+        )
     with open(tmp_path, "wb") as f:
         f.write(content)
 
     try:
-        chunks = DocumentLoader.load_and_chunk(tmp_path, subject_name=subject_name)
+        now = time.time()
+        modified_at = last_modified / 1000.0 if last_modified else now
+        result = DocumentLoader.load_and_chunk_detail(
+            tmp_path,
+            subject_name=subject_name,
+            modified_at=modified_at,
+            uploaded_at=now,
+            source_name=file.filename or tmp_path,
+        )
+        chunks = result.chunks
         if not chunks:
-            return ApiResponse(code=400, message="文档中未检测到有效题目内容", data=None)
+            return ApiResponse(code=400, message="文档中未检测到有效内容", data=None)
 
         full_texts = [c.content for c in chunks]
         metadatas = [c.metadata for c in chunks]
@@ -332,13 +516,20 @@ async def upload_document(
         return ApiResponse(
             code=200,
             message="文档入库成功",
-            data={
-                "file_name": file.filename,
-                "subject_name": subject_name,
-                "chunk_count": len(chunks),
-                "message": f"已将 {len(chunks)} 个题目块分别写入教师库和学生库",
-            },
+            data=DocumentUploadData(
+                file_name=file.filename,
+                subject_name=subject_name,
+                chunk_count=len(chunks),
+                format=result.format,
+                structure_type=result.structure_type,
+                chunking_strategy=result.chunking_strategy,
+                warnings=result.warnings,
+                message=f"已将 {len(chunks)} 个知识块分别写入教师库和学生库",
+            ),
         )
+    except ValueError as e:
+        logger.warning("文档格式或内容处理失败: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("文档处理失败")
         raise HTTPException(status_code=500, detail=f"文档处理失败: {e!s}")
@@ -376,6 +567,21 @@ def _strip_answer(text: str) -> str:
     text = re.sub(r'正确答案[：:]\s*[^\n]+', '', text)
     text = re.sub(r'Answer[：:]\s*[^\n]+', '', text, flags=re.IGNORECASE)
     return text.strip()
+
+
+def _format_source_label(metadata: dict) -> str:
+    """生成用于 LLM 上下文和前端来源展示的文件位置标签。"""
+    source = metadata.get("source_file", "")
+    subject = metadata.get("subject", "")
+    subject_part = f"[{subject}] " if subject else ""
+    if metadata.get("section_path"):
+        return f"《{source}》{subject_part}{metadata['section_path']}"
+    if metadata.get("section_title"):
+        return f"《{source}》{subject_part}{metadata['section_title']}"
+    question_index = metadata.get("question_index", 0)
+    if question_index:
+        return f"《{source}》{subject_part}第{question_index}题"
+    return f"《{source}》{subject_part}".strip()
 
 
 # ── 会话历史 ──

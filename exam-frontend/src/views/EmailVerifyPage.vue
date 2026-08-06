@@ -10,7 +10,7 @@ import {
   saveAuthChallenge,
   type AuthChallengeState
 } from '@/utils/authChallenge'
-import { RoleEnum, setRole, setRoleName, setUserId } from '@/utils/localStorage'
+import { RoleEnum, setRole, setRoleName, setToken, setUserId } from '@/utils/localStorage'
 import { broadcastLogin } from '@/utils/sessionSync'
 
 const router = useRouter()
@@ -114,6 +114,9 @@ const verify = async () => {
     if (!data?.roleName || !role) throw new Error('认证响应不完整')
     setRole(role)
     setRoleName(data.roleName)
+    if (data.token) {
+      setToken(data.token)
+    }
     if (data.userId) {
       setUserId(data.userId)
       broadcastLogin(data.userId)

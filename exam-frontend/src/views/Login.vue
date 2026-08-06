@@ -12,6 +12,7 @@ import {
   saveRememberedLogin,
   setRole,
   setRoleName,
+  setToken,
   setUserId
 } from '@/utils/localStorage'
 import { broadcastLogin } from '@/utils/sessionSync'
@@ -38,6 +39,9 @@ const finishLogin = async (data: UserLoginResponseVO) => {
   if (!data.roleName || !role) throw new Error('登录响应不完整')
   setRole(role)
   setRoleName(data.roleName)
+  if (data.token) {
+    setToken(data.token)
+  }
   if (data.userId) {
     setUserId(data.userId)
     broadcastLogin(data.userId)

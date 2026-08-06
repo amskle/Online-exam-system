@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     hybrid_top_k: int = 20
     keyword_max_docs: int = 50000
     max_upload_mb: int = 50
+    query_rewrite_enabled: bool = True
+    query_rewrite_max_variants: int = 5
+    query_rewrite_history_limit: int = 6
 
     # ── Agent ──
     llm_timeout: float = 100.0

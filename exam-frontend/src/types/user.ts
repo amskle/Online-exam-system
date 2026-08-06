@@ -13,6 +13,7 @@ export interface UserLoginResponseVO {
     status?: 'AUTHENTICATED' | 'EMAIL_REQUIRED' | 'EMAIL_VERIFICATION_REQUIRED'
     userId?: number
     roleName?: string
+    token?: string
     challengeId?: string
     maskedEmail?: string
     expiresIn?: number

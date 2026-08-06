@@ -303,6 +303,7 @@ public class EmailServiceImpl implements EmailService {
                 .status(STATUS_AUTHENTICATED)
                 .userId(user.getId())
                 .roleName(RoleEnum.getByRole(user.getRole()).getDescription())
+                .token(token)
                 .build();
     }
 

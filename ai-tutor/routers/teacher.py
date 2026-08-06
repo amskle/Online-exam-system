@@ -19,6 +19,7 @@ from utils.exam_bridge import exam_bridge
 from utils.session_store import session_store
 from rag.document_loader import DocumentLoader
 from rag.embeddings import embedding_service
+from rag.query_rewriter import query_rewrite_memory
 from rag.vector_store import vector_store
 from rag.retriever import retriever
 import uuid
@@ -388,6 +389,11 @@ async def chat(
     if _looks_like_generate_request(req.message):
         return await _handle_chat_generate(req, token, user_id)
 
+    sid = req.session_id or session_store.new_session_id()
+    history = session_store.history(sid, user_id)
+    query_rewrite_memory.seed_from_messages(sid, history)
+    query_history = query_rewrite_memory.recent_queries(sid)
+
     # ── 检索相关文档 ──
     try:
         docs = await retriever.retrieve(
@@ -395,6 +401,7 @@ async def chat(
             collection="teacher",
             top_k=5,
             subject_filter=req.subject_name or None,
+            query_history=query_history,
         )
     except Exception as e:
         logger.warning("知识库检索失败: %s", e)
@@ -429,11 +436,11 @@ async def chat(
         raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e!s}")
 
     # ── 保存会话历史 ──
-    sid = req.session_id or session_store.new_session_id()
     title = req.message[:50]
     session_store.ensure_session(sid, user_id, 'teacher', title)
     session_store.append(sid, user_id, "user", req.message)
     session_store.append(sid, user_id, "assistant", reply)
+    query_rewrite_memory.remember(sid, req.message)
 
     # ── 构建引用来源 ──
     sources = [

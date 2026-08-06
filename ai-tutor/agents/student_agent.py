@@ -179,7 +179,10 @@ async def understand_question(state: StudentState) -> StudentState:
 【对话历史】
 {history_str}
 
-请分析学生当前的知识薄弱点和困惑所在。输出一段不超过150字的分析。"""
+请分析学生当前的知识薄弱点和困惑所在。输出一段不超过150字的分析。
+
+注意：如果学生的疑问和题目内容无关则无需以苏格拉底教学的形式进行回答，只以交流的形式进行答复即可。
+"""
 
     try:
         state["weakness_analysis"] = await chat_text(prompt, temperature=0.5, max_tokens=256)
@@ -192,8 +195,18 @@ async def understand_question(state: StudentState) -> StudentState:
 async def retrieve_knowledge(state: StudentState) -> StudentState:
     """节点2: 知识检索 — 从学生知识库中检索相关知识点"""
     query = f"{state['question_content'][:200]} {state['message']}"
+    history_queries = [
+        message.get("content", "")
+        for message in state.get("conversation_history", [])
+        if message.get("role") == "user"
+    ][-settings.query_rewrite_history_limit:]
     try:
-        docs = await retriever.retrieve(query=query, collection="student", top_k=3)
+        docs = await retriever.retrieve(
+            query=query,
+            collection="student",
+            top_k=3,
+            query_history=history_queries,
+        )
     except Exception as e:
         logger.warning("学生检索失败: %s", e)
         state["warnings"].append(f"知识检索失败: {e!s}")
@@ -238,7 +251,7 @@ async def socratic_plan(state: StudentState) -> StudentState:
 引导步骤2: <第二步的引导问题>
 ...
 
-注意：绝对不要出现正确答案的具体内容。"""
+注意：绝对不要出现正确答案的具体内容。如果学生的疑问和题目内容无关则无需以苏格拉底教学的形式进行回答，只以交流的形式进行答复即可。"""
 
     try:
         state["socratic_plan"] = await chat_text(prompt, temperature=0.6, max_tokens=512)

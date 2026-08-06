@@ -252,6 +252,7 @@ export const studentApi = {
     const token = getToken()
     const resp = await fetch(`${base}/student/ask/stream`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

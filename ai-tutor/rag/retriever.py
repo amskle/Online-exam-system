@@ -1,10 +1,11 @@
-"""检索器 — 语义检索 + 关键词候选 + RRF 融合。"""
+"""检索器 — 多路 Query 改写 + 语义检索 + 关键词候选 + RRF 融合。"""
 import logging
 from typing import Literal
 
 from config.settings import get_settings
 from rag.embeddings import embedding_service
 from rag.keywords import keyword_score
+from rag.query_rewriter import generate_query_variants
 from rag.vector_store import vector_store
 
 settings = get_settings()
@@ -12,19 +13,20 @@ logger = logging.getLogger("ai-tutor.rag")
 
 
 def _rrf_merge(semantic_docs: list[dict], keyword_docs: list[dict], top_k: int) -> list[dict]:
-    """Reciprocal Rank Fusion：score = 1 / (60 + rank)。"""
+    """单路语义 + 关键词的 Reciprocal Rank Fusion。"""
+    return _rrf_merge_many([semantic_docs, keyword_docs], top_k)
+
+
+def _rrf_merge_many(result_lists: list[list[dict]], top_k: int) -> list[dict]:
+    """多路检索结果的 Reciprocal Rank Fusion：score = 1 / (60 + rank)。"""
     scores: dict[str, float] = {}
     merged: dict[str, dict] = {}
 
-    for rank, doc in enumerate(semantic_docs, start=1):
-        doc_id = doc["id"]
-        scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (60 + rank)
-        merged[doc_id] = doc
-
-    for rank, doc in enumerate(keyword_docs, start=1):
-        doc_id = doc["id"]
-        scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (60 + rank)
-        merged[doc_id] = doc
+    for ranked in result_lists:
+        for rank, doc in enumerate(ranked, start=1):
+            doc_id = doc["id"]
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (60 + rank)
+            merged[doc_id] = doc
 
     if not scores:
         return []
@@ -39,7 +41,7 @@ def _rrf_merge(semantic_docs: list[dict], keyword_docs: list[dict], top_k: int) 
 
 
 class Retriever:
-    """统一检索接口：语义优先，关键词候选补充，失败时纯关键词降级。"""
+    """统一检索接口：先多路改写，再逐路检索并 RRF 合并。"""
 
     @staticmethod
     async def retrieve(
@@ -47,19 +49,47 @@ class Retriever:
         collection: Literal["teacher", "student"],
         top_k: int | None = None,
         subject_filter: str | None = None,
+        query_history: list[str] | None = None,
     ) -> list[dict]:
         k = top_k or settings.retrieval_top_k
         hybrid_k = settings.hybrid_top_k
+        query_variants = await generate_query_variants(query, history=query_history)
 
+        result_lists: list[list[dict]] = []
+        for variant in query_variants:
+            docs = await Retriever._retrieve_variant(
+                variant,
+                collection=collection,
+                hybrid_k=hybrid_k,
+                subject_filter=subject_filter,
+            )
+            if docs:
+                result_lists.append(docs)
+
+        if result_lists:
+            return _rrf_merge_many(result_lists, k)
+        return await Retriever._keyword_retrieve(query, collection, k, subject_filter)
+
+    @staticmethod
+    async def _retrieve_variant(
+        query: str,
+        collection: Literal["teacher", "student"],
+        hybrid_k: int,
+        subject_filter: str | None,
+    ) -> list[dict]:
         try:
             q_emb = await embedding_service.embed_one(query)
             if not q_emb:
                 raise RuntimeError("Embedding API 返回空向量")
 
             if collection == "teacher":
-                semantic_docs = vector_store.search_teacher(q_emb, top_k=hybrid_k, subject_filter=subject_filter)
+                semantic_docs = vector_store.search_teacher(
+                    q_emb, top_k=hybrid_k, subject_filter=subject_filter
+                )
             else:
-                semantic_docs = vector_store.search_student(q_emb, top_k=hybrid_k, subject_filter=subject_filter)
+                semantic_docs = vector_store.search_student(
+                    q_emb, top_k=hybrid_k, subject_filter=subject_filter
+                )
 
             if not semantic_docs and subject_filter:
                 logger.info(
@@ -79,16 +109,14 @@ class Retriever:
             )
             keyword_docs = [d for d in keyword_docs if keyword_score(query, d["document"]) > 0]
 
-            if semantic_docs and keyword_docs:
-                return _rrf_merge(semantic_docs, keyword_docs, k)
-            if semantic_docs:
-                return semantic_docs[:k]
-            if keyword_docs:
-                return keyword_docs[:k]
+            if semantic_docs or keyword_docs:
+                return _rrf_merge(semantic_docs, keyword_docs, hybrid_k)
             return []
         except Exception as e:
             logger.warning("语义检索失败，降级到关键词匹配: %s", e)
-            return await Retriever._keyword_retrieve(query, collection, k, subject_filter)
+            return await Retriever._keyword_retrieve(
+                query, collection, hybrid_k, subject_filter
+            )
 
     @staticmethod
     async def _keyword_retrieve(
@@ -114,7 +142,6 @@ class Retriever:
             )
 
         if not candidates:
-            # 关键词候选无命中时，小集合回退到全量本地评分
             all_docs = vector_store.get_all_documents(collection)
             subject_docs = [
                 d for d in all_docs

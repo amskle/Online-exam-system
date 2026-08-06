@@ -99,7 +99,7 @@ async def recommend(auth=Depends(require_student)):
 2. 识别2-3个薄弱知识点
 3. 给出一条具体的复习建议
 
-回复长度不超过150字，语气亲切。"""
+回复长度不超过150字，语气亲切。如果错题集为空则只需给出鼓励性语言和建议即可。"""
 
     try:
         suggestion = await chat_text(prompt, temperature=0.7, max_tokens=256)

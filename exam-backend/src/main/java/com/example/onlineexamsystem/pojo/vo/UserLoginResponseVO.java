@@ -16,6 +16,7 @@ public class UserLoginResponseVO {
     private String status;
     private Integer userId;
     private String roleName;
+    private String token;
     private String challengeId;
     private String maskedEmail;
     private Long expiresIn;

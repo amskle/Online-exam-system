@@ -1,5 +1,5 @@
 # FastAPI + 异步支持
-fastapi>=0.141.0
+fastapi==0.141.0
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 
@@ -8,12 +8,10 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 
 # JWT
-pyjwt==2.10.1
+pyjwt==2.13.0
 
-# LangGraph + LangChain
-langgraph==0.2.60
-langchain==0.3.14
-langchain-community==0.3.14
+# LangGraph（项目未直接使用 LangChain，避免引入无用依赖与漏洞面）
+langgraph==1.2.11
 
 # RAG — 文档解析
 pymupdf>=1.24.0
@@ -25,13 +23,13 @@ markdown-it-py>=3.0.0
 jieba>=0.42.1
 
 # RAG — 向量检索
-chromadb==0.5.23
+chromadb==1.5.9
 
 # RAG — Embedding (国内模型 SDK)
 openai==1.58.1  # 兼容通义千问 / DeepSeek 等 OpenAI-compatible API
 
 # 工具
-python-dotenv==1.0.1
-python-multipart==0.0.19
+python-dotenv==1.2.2
+python-multipart==0.0.32
 pytest>=8.0.0
 

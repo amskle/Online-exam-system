@@ -1,10 +1,14 @@
 spring:
+  threads:
+    virtual:
+      # Java 21：避免突发登录占用大量平台线程，仍保留数据库/Redis 连接池限制。
+      enabled: ${VIRTUAL_THREADS_ENABLED:true}
   application:
     name: ExamMind
   datasource:
     url: jdbc:mysql://localhost:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:123456}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # 连接池配置（HikariCP，Spring Boot 默认）
@@ -26,14 +30,17 @@ spring:
       host: localhost
       port: 6379
       database: 0
+      password: ${REDIS_PASSWORD:}
+      # 连接/命令超时，避免 Redis 不可用时请求长时间挂起导致前端超时
+      timeout: 3s
+      connect-timeout: 3s
       lettuce:
         pool:
-#          max-active: 8
           max-active: 50
           max-idle: 8
           min-idle: 0
           max-wait: 2000ms
-  #          max-wait: 100ms
+        shutdown-timeout: 200ms
 
   mail:
     host: smtp.qq.com
@@ -46,8 +53,20 @@ spring:
           ssl:
             enable: true
           auth: true
+          # SMTP 连接/读取/写入超时，避免邮件发送阻塞登录请求
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
 server:
   port: 8077
+  tomcat:
+    # 突发连接等待队列；实际容量受操作系统限制，压测仍需单独预热。
+    accept-count: ${TOMCAT_ACCEPT_COUNT:2048}
+  forward-headers-strategy: framework
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   global-config:
@@ -55,21 +74,27 @@ mybatis-plus:
       id-type: auto
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 file:
   upload-dir: file
 auth:
   email-code-ttl: 5m
   email-send-cooldown: 60s
   email-daily-limit: 10
+  email-ip-daily-limit: 10
   trusted-device-ttl: 7d
   trusted-device-secure-cookie: false
 
+admin:
+  initial-password: ${ADMIN_INITIAL_PASSWORD:}
+  initial-email: ${ADMIN_INITIAL_EMAIL:admin@example.com}
+
 # JWT — 生产环境通过环境变量覆盖
 jwt:
-  secret: ${JWT_SECRET:t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3}
+  secret: ${JWT_SECRET}
 
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8076,http://localhost:8088}
   feature:
     export-enabled: true
     max-export-rows: 1000

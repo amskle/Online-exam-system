@@ -239,11 +239,21 @@ class VectorStore:
 
     # ── 批量获取（供关键词检索降级使用）──
 
-    def get_all_documents(self, collection_name: str) -> list[dict]:
-        """获取 collection 中全部文档（含 metadata），用于本地关键词评分"""
+    def count_documents(self, collection_name: str) -> int:
+        """返回 collection 文档数，不加载文档正文。"""
         col = self._teacher if collection_name == "teacher" else self._student
         try:
-            results = col.get(include=["documents", "metadatas"])
+            return int(col.count())
+        except Exception:
+            logger.warning("ChromaDB count() 失败", exc_info=True)
+            return 0
+
+    def get_all_documents(self, collection_name: str, limit: int = 1000) -> list[dict]:
+        """有限量获取文档（含 metadata），避免一次读取整个向量库。"""
+        col = self._teacher if collection_name == "teacher" else self._student
+        try:
+            safe_limit = max(1, min(limit, 1000))
+            results = col.get(include=["documents", "metadatas"], limit=safe_limit)
         except Exception:
             logger.warning("ChromaDB get() 失败", exc_info=True)
             return []

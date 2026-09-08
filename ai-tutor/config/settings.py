@@ -1,4 +1,5 @@
 """应用配置 — 基于 pydantic-settings，从 .env / 环境变量加载"""
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -7,10 +8,11 @@ class Settings(BaseSettings):
     # ── 服务 ──
     app_name: str = "ai-tutor"
     app_port: int = 8080
-    debug: bool = True
+    debug: bool = False
+    cors_allowed_origins: str = "http://localhost:8076,http://localhost:8088"
 
     # ── JWT — 与 Spring Boot 共享同一 secret ──
-    jwt_secret: str = "t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3"
+    jwt_secret: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
 
     # ── Spring Boot 考试系统地址 ──
@@ -45,11 +47,13 @@ class Settings(BaseSettings):
     query_rewrite_enabled: bool = True
     query_rewrite_max_variants: int = 5
     query_rewrite_history_limit: int = 6
+    query_rewrite_concurrency: int = 3
 
     # ── Agent ──
     llm_timeout: float = 100.0
     generate_batch_size: int = 5  # 单次 LLM 调用生成的最大题数
     generate_max_attempts: int = 4  # 数量不足时的最大补生成轮数
+    quality_check_max_attempts: int = 2
     session_history_limit: int = 12  # 注入 prompt 的对话历史条数
     session_max_messages: int = 50  # 每个会话在库中保留的最大消息数
 

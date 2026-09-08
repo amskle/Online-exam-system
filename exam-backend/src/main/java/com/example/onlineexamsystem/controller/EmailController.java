@@ -5,6 +5,7 @@ import com.example.onlineexamsystem.pojo.dto.EmailSendDTO;
 import com.example.onlineexamsystem.pojo.dto.EmailVerifyDTO;
 import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.EmailService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,8 +35,10 @@ public class EmailController {
     private boolean secureCookie;
 
     @PostMapping("/send")
-    public Result<UserLoginResponseVO> send(@Valid @RequestBody EmailSendDTO dto) {
-        return Result.success(emailService.sendCode(dto));
+    public Result<UserLoginResponseVO> send(
+            @Valid @RequestBody EmailSendDTO dto,
+            HttpServletRequest request) {
+        return Result.success(emailService.sendCode(dto, request.getRemoteAddr()));
     }
 
     @PostMapping("/verify")

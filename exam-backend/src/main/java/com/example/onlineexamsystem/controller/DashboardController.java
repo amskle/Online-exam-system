@@ -72,7 +72,7 @@ public class DashboardController {
                 subjectCount,
                 questionTypeStats,
                 subjectQuestionStats,
-                buildTrendStats()
+                buildTrendStats(30)
         ));
     }
 
@@ -83,7 +83,8 @@ public class DashboardController {
      */
     @GetMapping("/trends")
     public Result<List<TrendStatsVO>> trends(Integer days) {
-        return Result.success(buildTrendStats());
+        int requestedDays = days == null ? 30 : Math.max(1, Math.min(days, 90));
+        return Result.success(buildTrendStats(requestedDays));
     }
 
     /**
@@ -255,11 +256,10 @@ public class DashboardController {
      *
      * @return List<TrendStatsVO> 趋势统计列表
      */
-    private List<TrendStatsVO> buildTrendStats() {
+    private List<TrendStatsVO> buildTrendStats(int days) {
         List<TrendStatsVO> result = new ArrayList<>();
         LocalDate today = LocalDate.now();
-        LocalDate startDate = findFirstUserCreateDate(today);
-        long days = java.time.temporal.ChronoUnit.DAYS.between(startDate, today) + 1;
+        LocalDate startDate = today.minusDays(days - 1L);
         for (int i = 0; i < days; i++) {
             LocalDate date = startDate.plusDays(i);
             LocalDateTime start = date.atStartOfDay();

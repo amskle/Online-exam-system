@@ -55,6 +55,17 @@ def _answer_letters(answer: str) -> set[str]:
     return letters
 
 
+def _parse_options(raw_options) -> list[str]:
+    if isinstance(raw_options, str):
+        try:
+            raw_options = json.loads(raw_options)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw_options, list):
+        return []
+    return [str(option).strip() for option in raw_options]
+
+
 def _validate_single_question(q: dict, question_type: int, index: int) -> str | None:
     """返回校验失败消息，成功则 None"""
     content = q.get("content", "")
@@ -63,21 +74,35 @@ def _validate_single_question(q: dict, question_type: int, index: int) -> str | 
     answer = str(q.get("answer", ""))
     if not answer:
         return f"第{index + 1}题缺少 answer"
+    analysis = str(q.get("analysis", "")).strip()
+    if len(analysis) < 4:
+        return f"第{index + 1}题缺少有效解析"
+    score = q.get("score")
+    if not isinstance(score, int) or isinstance(score, bool) or score <= 0:
+        return f"第{index + 1}题 score 应为正整数"
 
     if question_type == 1:  # 单选
+        options = _parse_options(q.get("options"))
+        if len(options) != 4 or any(not option for option in options) or len(set(options)) != 4:
+            return f"第{index + 1}题单选题必须包含4个不重复的有效选项"
         letters = _answer_letters(answer)
         if len(letters) != 1:
             return f"第{index + 1}题单选题 answer 应为单个字母"
-        options = q.get("options")
-        if isinstance(options, list) and list(letters)[0] not in {"A", "B", "C", "D"}:
+        if next(iter(letters)) not in {"A", "B", "C", "D"}:
             return f"第{index + 1}题 answer 字母无效"
     elif question_type == 2:  # 多选
+        options = _parse_options(q.get("options"))
+        if len(options) != 4 or any(not option for option in options) or len(set(options)) != 4:
+            return f"第{index + 1}题多选题必须包含4个不重复的有效选项"
         letters = _answer_letters(answer)
         if len(letters) < 1:
             return f"第{index + 1}题多选题 answer 应至少包含一个字母"
         if not letters.issubset({"A", "B", "C", "D"}):
             return f"第{index + 1}题 answer 包含无效字母"
     elif question_type == 3:  # 判断
+        options = _parse_options(q.get("options"))
+        if options != ["正确", "错误"]:
+            return f"第{index + 1}题判断题 options 应为正确、错误"
         if answer not in ("正确", "错误"):
             return f"第{index + 1}题判断题 answer 应为'正确'或'错误'"
 
@@ -239,11 +264,11 @@ async def generate_questions(state: TeacherState) -> TeacherState:
 
 
 async def quality_check(state: TeacherState) -> TeacherState:
-    """节点4: 质量检查 — LLM 自检生成的所有题目，失败降级保留原结果"""
+    """节点4: 质量门禁 — LLM 修订后再做确定性校验，失败则停止入库。"""
     if not state.get("generated_questions"):
         return state
 
-    prompt = f"""请检查以下生成的题目质量，找出明显错误，并修复。如果没问题就原样返回。
+    base_prompt = f"""请检查以下生成的题目质量，找出明显错误，并修复。如果没问题就原样返回。
 
 科目: {state["subject_name"]}
 题目: {json.dumps(state["generated_questions"], ensure_ascii=False, indent=2)}
@@ -254,29 +279,50 @@ async def quality_check(state: TeacherState) -> TeacherState:
 3. 判断题答案必须是"正确"或"错误"
 4. 题目内容不能与参考题完全重复
 5. 解析要解释为什么是这个答案
+6. 返回题目数量及顺序必须与输入一致
 
 返回修复后的 JSON 数组:"""
 
-    try:
-        checked = await chat_json(prompt, temperature=0.3, max_tokens=4096)
-        if isinstance(checked, list):
-            # 对质检结果也跑确定性质检
-            valid = []
+    last_error = ""
+    for attempt in range(settings.quality_check_max_attempts):
+        retry_hint = f"\n上一次校验失败：{last_error}\n请完整修复后重新返回。" if last_error else ""
+        try:
+            checked = await chat_json(base_prompt + retry_hint, temperature=0.3, max_tokens=4096)
+            if not isinstance(checked, list):
+                raise ValueError("质检结果不是 JSON 数组")
+            if len(checked) != len(state["generated_questions"]):
+                raise ValueError(
+                    f"质检结果数量不一致：期望 {len(state['generated_questions'])}，实际 {len(checked)}"
+                )
+
+            seen_contents: set[str] = set()
+            errors: list[str] = []
             for i, q in enumerate(checked):
+                if not isinstance(q, dict):
+                    errors.append(f"第{i + 1}题不是对象")
+                    continue
                 _coerce_options(q, state["question_type"])
                 err = _validate_single_question(q, state["question_type"], i)
+                normalized_content = "".join(str(q.get("content", "")).split()).lower()
+                if normalized_content in seen_contents:
+                    err = err or f"第{i + 1}题与本批其他题目重复"
+                seen_contents.add(normalized_content)
                 if err:
-                    valid.append(state["generated_questions"][i] if i < len(state["generated_questions"]) else q)
-                else:
-                    valid.append(q)
-            state["quality_checked"] = valid
-        else:
-            state["quality_checked"] = state["generated_questions"]
-            state["warnings"].append("质检 LLM 未返回数组，保留原始题目")
-    except Exception as e:
-        logger.warning("质检失败，保留原始题目: %s", e)
-        state["warnings"].append(f"质检失败（保留原始题目）: {e!s}")
-        state["quality_checked"] = state["generated_questions"]
+                    errors.append(err)
+            if errors:
+                raise ValueError("；".join(errors))
+
+            state["quality_checked"] = checked
+            return state
+        except Exception as e:
+            last_error = str(e)
+            logger.warning("第 %d 次质检未通过: %s", attempt + 1, e)
+            state["warnings"].append(f"第 {attempt + 1} 次质检未通过：{e!s}")
+
+    state["quality_checked"] = []
+    state["fatal_error"] = (
+        f"题目经过 {settings.quality_check_max_attempts} 次质检仍未通过，已停止入库：{last_error}"
+    )
 
     return state
 
@@ -349,7 +395,7 @@ def build_teacher_graph() -> StateGraph:
     workflow.add_conditional_edges("understand", has_fatal, {"continue": "retrieve", "end": END})
     workflow.add_edge("retrieve", "generate")
     workflow.add_conditional_edges("generate", has_fatal, {"continue": "check", "end": END})
-    workflow.add_edge("check", "save")
+    workflow.add_conditional_edges("check", has_fatal, {"continue": "save", "end": END})
     workflow.add_edge("save", END)
 
     return workflow.compile()

@@ -83,7 +83,7 @@
                 <el-button size="small" :icon="Upload" @click="openFilePicker" :loading="uploading">
                   {{ uploading ? '上传中…' : '📄 上传知识库' }}
                 </el-button>
-                <el-button size="small" type="danger" @click="clearKnowledge" :disabled="uploading">
+                <el-button v-if="isAdmin" size="small" type="danger" @click="clearKnowledge" :disabled="uploading">
                   🗑️ 清空知识库
                 </el-button>
                 <el-button size="small" type="warning" @click="doGenerate" :loading="loading" :disabled="!genSubjectId">
@@ -157,6 +157,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Promotion, Upload } from '@element-plus/icons-vue'
 import { teacherApi, studentApi } from '@/api/tutor-api'
 import type { GeneratedQuestion, SubjectItem, SessionItem, SessionDetail } from '@/api/tutor-api'
+import { getRole, RoleEnum } from '@/utils/localStorage'
 
 const route = useRoute()
 
@@ -168,6 +169,7 @@ const agentMode = computed<'teacher' | 'student' | null>(() => {
 })
 
 const visible = computed(() => agentMode.value !== null)
+const isAdmin = computed(() => getRole() === RoleEnum.ADMIN)
 
 // ── 对话框状态 ──
 const dialogOpen = ref(false)

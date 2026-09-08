@@ -1,10 +1,14 @@
 spring:
+  threads:
+    virtual:
+      # Java 21：避免突发登录占用大量平台线程，仍保留数据库/Redis 连接池限制。
+      enabled: ${VIRTUAL_THREADS_ENABLED:true}
   application:
     name: Online-exam-system
   datasource:
     url: jdbc:mysql://localhost:3306/exam_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-    username: root
-    password:
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # 连接池配置（HikariCP，Spring Boot 默认）
@@ -43,8 +47,16 @@ spring:
           ssl:
             enable: true
           auth: true
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
 server:
   port: 8077
+  tomcat:
+    # 突发连接等待队列；实际容量受操作系统限制，压测仍需单独预热。
+    accept-count: ${TOMCAT_ACCEPT_COUNT:2048}
+  forward-headers-strategy: framework
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   global-config:
@@ -52,12 +64,26 @@ mybatis-plus:
       id-type: auto
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 file:
   upload-dir: file
 auth:
   email-code-ttl: 5m
   email-send-cooldown: 60s
   email-daily-limit: 10
+  email-ip-daily-limit: 10
   trusted-device-ttl: 7d
   trusted-device-secure-cookie: false
+
+admin:
+  initial-password: ${ADMIN_INITIAL_PASSWORD:}
+  initial-email: ${ADMIN_INITIAL_EMAIL:admin@example.com}
+
+jwt:
+  secret: ${JWT_SECRET}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8076,http://localhost:8088}
+  feature:
+    export-enabled: true
+    max-export-rows: 1000

@@ -11,11 +11,11 @@ import java.util.Map;
 
 public interface EmailService {
     UserLoginResponseVO beginLogin(UserLoginDTO dto, Map<Integer, String> trustedDeviceTokens,
-                                   HttpServletResponse response);
+                                   HttpServletResponse response, String clientIp);
 
-    UserLoginResponseVO beginRegister(UserRegisterDTO dto);
+    UserLoginResponseVO beginRegister(UserRegisterDTO dto, String clientIp);
 
-    UserLoginResponseVO sendCode(EmailSendDTO dto);
+    UserLoginResponseVO sendCode(EmailSendDTO dto, String clientIp);
 
     VerificationResult verify(EmailVerifyDTO dto, HttpServletResponse response);
 

@@ -1,5 +1,7 @@
 package com.example.onlineexamsystem.controller;
 
+import com.example.onlineexamsystem.annotation.Auth;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.vo.FileUploadResponseVO;
 import com.example.onlineexamsystem.service.FileUploadService;
@@ -16,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/files")
 @RequiredArgsConstructor
+@Auth({1, 2, 3})
 public class FileUploadController {
     private final FileUploadService fileUploadService;
 
@@ -41,8 +44,10 @@ public class FileUploadController {
                     .filePath(filePath)
                     .build();
                     return Result.success(fileUploadResponseVO);
-        }catch (Exception e) {
-            return Result.fail(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(e.getMessage(), 400);
+        } catch (Exception e) {
+            throw new BusinessException("文件上传失败，请稍后重试");
         }
     }
 }

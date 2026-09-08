@@ -125,7 +125,39 @@ async def _regenerate_safe_reply(state: StudentState) -> str:
     try:
         return await chat_text(prompt, temperature=0.7, max_tokens=512)
     except Exception:
-        return "让我换个方式引导你思考这个问题..."
+        return _safe_fallback_reply()
+
+
+def _safe_fallback_reply() -> str:
+    """检查服务不可用时使用不含答案信息的固定回复。"""
+    return "我先不直接判断答案。请写出你用到的知识点和推理步骤，我们从第一步一起检查。"
+
+
+async def _llm_detect_leak(state: StudentState, reply: str) -> bool:
+    """让独立 LLM 判断回复是否包含直接或间接答案；非预期输出按失败处理。"""
+    prompt = f"""请严格检查以下 AI 助教的回复是否泄露了正确答案。
+
+【题目】
+{state["question_content"][:500]}
+
+【正确答案】（绝对不能透露给学生的内容）
+{state.get("correct_answer", "")}
+
+【AI 回复】
+{reply}
+
+检查规则：
+1. 回复中是否直接出现了正确答案的值？（如答案选项字母、判断结果、关键数字等）
+2. 回复中是否通过排除法隐式给出了答案？（如 "A不对，B也不对，只剩下C了"）
+3. 回复是否过于明显地暗示了正确答案？
+
+只输出一个词：LEAK（泄露了）或 SAFE（安全）。不要输出其他内容。"""
+    raw = (await chat_text(prompt, temperature=0.1, max_tokens=32)).strip().upper()
+    if raw.startswith("LEAK"):
+        return True
+    if raw.startswith("SAFE"):
+        return False
+    raise ValueError(f"泄露检查返回了非预期结果: {raw[:32]}")
 
 # ── 节点函数 ──
 
@@ -302,39 +334,32 @@ async def leak_check(state: StudentState) -> StudentState:
     # ── 2. LLM 严格检查 ──
     llm_leak = False
     if not det_leak and correct:
-        prompt = f"""请严格检查以下 AI 助教的回复是否泄露了正确答案。
-
-【题目】
-{state["question_content"][:500]}
-
-【正确答案】（绝对不能透露给学生的内容）
-{correct}
-
-【AI 回复】
-{draft}
-
-检查规则：
-1. 回复中是否直接出现了正确答案的值？（如答案选项字母、判断结果、关键数字等）
-2. 回复中是否通过排除法隐式给出了答案？（如 "A不对，B也不对，只剩下C了"）
-3. 回复是否过于明显地暗示了正确答案？
-
-只输出一个词：LEAK（泄露了）或 SAFE（安全）。不要输出其他内容。"""
-
         try:
-            raw = await chat_text(prompt, temperature=0.1, max_tokens=32)
-            if raw.strip().upper().startswith("LEAK"):
-                llm_leak = True
+            llm_leak = await _llm_detect_leak(state, draft)
         except Exception as e:
             logger.warning("LLM 泄露检查失败: %s", e)
+            state["warnings"].append("答案泄露检查不可用，已使用安全兜底回复")
+            llm_leak = True
 
-    if det_leak:
-        logger.info("确定性泄露检测命中，正在重写回复")
+    if det_leak or llm_leak:
+        logger.info("答案泄露检测命中或不可用，正在重写回复")
         state["contains_answer"] = True
-        state["final_reply"] = await _regenerate_safe_reply(state)
-    elif llm_leak:
-        logger.info("LLM 泄露检测命中，正在重写回复")
-        state["contains_answer"] = True
-        state["final_reply"] = await _regenerate_safe_reply(state)
+        regenerated = await _regenerate_safe_reply(state)
+        if _deterministic_leak(correct, regenerated):
+            state["final_reply"] = _safe_fallback_reply()
+        elif correct:
+            try:
+                state["final_reply"] = (
+                    _safe_fallback_reply()
+                    if await _llm_detect_leak(state, regenerated)
+                    else regenerated
+                )
+            except Exception as e:
+                logger.warning("安全重写复检失败: %s", e)
+                state["warnings"].append("安全重写复检不可用，已使用固定兜底回复")
+                state["final_reply"] = _safe_fallback_reply()
+        else:
+            state["final_reply"] = regenerated
     else:
         state["contains_answer"] = False
         state["final_reply"] = draft

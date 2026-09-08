@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,14 +18,20 @@ import java.util.Map;
  */
 @Component
 public class JwtUtil {
+    private final Key key;
 
-    @Value("${jwt.secret}")
-    private String secretKey;
+    public JwtUtil(@Value("${jwt.secret}") String secretKey) {
+        byte[] secretBytes = secretKey == null ? new byte[0] : secretKey.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < 32) {
+            throw new IllegalArgumentException("JWT_SECRET 必须至少包含32字节");
+        }
+        this.key = Keys.hmacShaKeyFor(secretBytes);
+    }
 
     private static final long EXPIRATION_TIME = 7 * 24 * 60 * 60 * 1000;
 
     private Key getKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes());
+        return key;
     }
 
     private static final String CLAIM_LOGIN_VERSION = "loginVer";

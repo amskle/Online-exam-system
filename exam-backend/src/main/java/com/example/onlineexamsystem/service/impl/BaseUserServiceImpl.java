@@ -12,7 +12,6 @@ import com.example.onlineexamsystem.service.FileUploadService;
 import com.example.onlineexamsystem.utils.JwtUtil;
 import io.jsonwebtoken.Claims;
 import lombok.AllArgsConstructor;
-import org.springframework.beans.BeanUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -46,6 +45,9 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
         }
         int userId = userIdStr;
         BaseUser baseUser = this.getById(userId);
+        if (baseUser == null) {
+            throw new BusinessException("用户不存在");
+        }
         return BaseUserVO.builder()
                 .id(baseUser.getId())
                 .username(baseUser.getUsername())
@@ -93,7 +95,10 @@ public class BaseUserServiceImpl extends ServiceImpl<BaseUserMapper, BaseUser> i
             throw new BusinessException("用户信息查询异常");
         }
         BaseUser baseUser = new BaseUser();
-        BeanUtils.copyProperties(baseUserUpdateDTO, baseUser);
+        baseUser.setId(baseUserUpdateDTO.getId());
+        baseUser.setUsername(baseUserUpdateDTO.getUsername());
+        baseUser.setGender(baseUserUpdateDTO.getGender());
+        baseUser.setPhone(baseUserUpdateDTO.getPhone());
         this.updateById(baseUser);
     }
 

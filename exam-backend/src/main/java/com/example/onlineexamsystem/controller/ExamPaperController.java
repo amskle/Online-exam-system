@@ -16,6 +16,7 @@ import com.example.onlineexamsystem.service.ExamPaperService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 试卷控制器
@@ -128,9 +129,10 @@ public class ExamPaperController {
      * @return Result<Void>
      */
     @DeleteMapping("/{id}")
+    @Transactional
     public Result<Void> delete(@PathVariable Integer id) {
-        examPaperService.removeById(id);
         examPaperQuestionService.remove(new LambdaQueryWrapper<ExamPaperQuestion>().eq(ExamPaperQuestion::getPaperId, id));
+        examPaperService.removeById(id);
         return Result.success();
     }
 }

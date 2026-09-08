@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS user (
 4. **`login_status` 不是 `is_locked`**：命名为 "login status" 而非 "is locked" 是为扩展性——以后可能有"0 正常 / 1 封号 / 2 临时冻结 / 3 未验证邮箱"。
 
 ```sql
--- 默认管理员（账号 admin，密码 123456，BCrypt 加密）
+-- 初始管理员由启动迁移器读取 ADMIN_INITIAL_PASSWORD 后创建，不在 SQL 中写入默认密码
 INSERT IGNORE INTO user (id, account, password, username, role, email, login_status, create_time)
 VALUES (1, 'admin', '$2b$10$P2rqMDKks/zYfWA.i4f15.3NHkX2tdgECbcFdDNS6VWFK38fiOPVq', '管理员', 3, 'admin@example.com', 0, NOW());
 ```

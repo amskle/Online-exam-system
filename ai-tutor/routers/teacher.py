@@ -217,9 +217,25 @@ async def require_teacher_or_admin(
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
+    try:
+        current_user = await exam_bridge.validate_auth(token)
+    except Exception:
+        logger.exception("后端认证服务不可用")
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="登录状态已失效")
     role = claims.get("role")
     if role not in (ROLE_TEACHER, ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="仅教师和管理员可访问")
+    claims["sub"] = str(current_user.get("id"))
+    return token, claims
+
+
+async def require_admin(auth=Depends(require_teacher_or_admin)):
+    """全局破坏性操作仅允许管理员执行。"""
+    token, claims = auth
+    if claims.get("role") != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
     return token, claims
 
 
@@ -481,18 +497,25 @@ async def upload_document(
     token, claims = auth
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
+    if ext not in {"pdf", "txt", "md", "docx", "pptx"}:
+        raise HTTPException(status_code=400, detail="仅支持 PDF、TXT、MD、DOCX、PPTX 文件")
+    subject_name = subject_name.strip()
+    if not subject_name or len(subject_name) > 100:
+        raise HTTPException(status_code=400, detail="科目名称不能为空且不能超过100个字符")
     tmp_path = f"./upload_temp_{uuid.uuid4().hex}.{ext}"
-    content = await file.read()
     max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件大小不能超过 {settings.max_upload_mb}MB",
-        )
-    with open(tmp_path, "wb") as f:
-        f.write(content)
 
     try:
+        total_bytes = 0
+        with open(tmp_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件大小不能超过 {settings.max_upload_mb}MB",
+                    )
+                f.write(chunk)
         now = time.time()
         modified_at = last_modified / 1000.0 if last_modified else now
         result = DocumentLoader.load_and_chunk_detail(
@@ -511,13 +534,14 @@ async def upload_document(
 
         # ── 教师库：完整文本向量化并入库 ──
         full_embeddings = await embedding_service.embed(full_texts)
-        teacher_ids = [f"teacher_{file.filename}_{i}" for i in range(len(chunks))]
+        upload_id = uuid.uuid4().hex
+        teacher_ids = [f"teacher_{upload_id}_{i}" for i in range(len(chunks))]
         vector_store.add_to_teacher(teacher_ids, full_texts, full_embeddings, metadatas)
 
         # ── 学生库：剥离答案后单独向量化，确保向量与文本一致 ──
         student_texts = [_strip_answer(t) for t in full_texts]
         student_embeddings = await embedding_service.embed(student_texts)
-        student_ids = [f"student_{file.filename}_{i}" for i in range(len(chunks))]
+        student_ids = [f"student_{upload_id}_{i}" for i in range(len(chunks))]
         vector_store.add_to_student(student_ids, student_texts, student_embeddings, metadatas)
 
         return ApiResponse(
@@ -534,6 +558,8 @@ async def upload_document(
                 message=f"已将 {len(chunks)} 个知识块分别写入教师库和学生库",
             ),
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning("文档格式或内容处理失败: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
@@ -546,14 +572,14 @@ async def upload_document(
 
 
 @router.delete("/knowledge", response_model=ApiResponse)
-async def clear_knowledge_base(auth=Depends(require_teacher_or_admin)):
+async def clear_knowledge_base(auth=Depends(require_admin)):
     """
     清空教师/学生知识库（ChromaDB 两个 collection 全部删除并重建）。
     用于重新上传文档前清除旧数据。
     """
     try:
-        before_t = len(vector_store.get_all_documents("teacher"))
-        before_s = len(vector_store.get_all_documents("student"))
+        before_t = vector_store.count_documents("teacher")
+        before_s = vector_store.count_documents("student")
         vector_store.clear_teacher()
         vector_store.clear_student()
         logger.info("知识库已清空（教师库 %d 条，学生库 %d 条）", before_t, before_s)

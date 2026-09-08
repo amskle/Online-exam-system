@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 邮箱发送工具类
@@ -17,7 +20,8 @@ public class EmailUtil {
     @Value("${spring.mail.username}")
     private String sender;
 
-    public void sendVerificationCode(String email, String code, String purpose) {
+    @Async("emailTaskExecutor")
+    public CompletableFuture<Void> sendVerificationCode(String email, String code, String purpose) {
         String action = "REGISTER".equals(purpose) ? "注册" : "登录";
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(sender);
@@ -26,5 +30,6 @@ public class EmailUtil {
         message.setText("您正在进行" + action + "验证，验证码为：" + code
                 + "\n\n验证码5分钟内有效，请勿向他人泄露。若非本人操作，请忽略此邮件。");
         mailSender.send(message);
+        return CompletableFuture.completedFuture(null);
     }
 }

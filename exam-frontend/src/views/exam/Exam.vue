@@ -296,7 +296,7 @@ const handleBeforeUnload = (event: BeforeUnloadEvent) => {
   // 页面关闭前尝试发送保存请求
   const payload = buildSubmitPayload()
   if (payload.answers.some(a => a.userAnswer)) {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8077'
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
     const token = (() => { try { return sessionStorage.getItem('TOKEN') ?? '' } catch { return '' } })()
     fetch(`${baseUrl}/student/examRecords/save-progress`, {
       method: 'POST',

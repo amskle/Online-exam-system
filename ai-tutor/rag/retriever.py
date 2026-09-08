@@ -1,4 +1,5 @@
 """检索器 — 多路 Query 改写 + 语义检索 + 关键词候选 + RRF 融合。"""
+import asyncio
 import logging
 from typing import Literal
 
@@ -55,16 +56,21 @@ class Retriever:
         hybrid_k = settings.hybrid_top_k
         query_variants = await generate_query_variants(query, history=query_history)
 
-        result_lists: list[list[dict]] = []
-        for variant in query_variants:
-            docs = await Retriever._retrieve_variant(
-                variant,
-                collection=collection,
-                hybrid_k=hybrid_k,
-                subject_filter=subject_filter,
-            )
-            if docs:
-                result_lists.append(docs)
+        semaphore = asyncio.Semaphore(max(1, settings.query_rewrite_concurrency))
+
+        async def retrieve_variant(variant: str) -> list[dict]:
+            async with semaphore:
+                return await Retriever._retrieve_variant(
+                    variant,
+                    collection=collection,
+                    hybrid_k=hybrid_k,
+                    subject_filter=subject_filter,
+                )
+
+        variant_results = await asyncio.gather(
+            *(retrieve_variant(variant) for variant in query_variants)
+        )
+        result_lists = [docs for docs in variant_results if docs]
 
         if result_lists:
             return _rrf_merge_many(result_lists, k)
@@ -142,7 +148,11 @@ class Retriever:
             )
 
         if not candidates:
-            all_docs = vector_store.get_all_documents(collection)
+            document_count = vector_store.count_documents(collection)
+            if document_count > 1000:
+                logger.warning("关键词降级跳过 %d 条记录的全量评分", document_count)
+                return []
+            all_docs = vector_store.get_all_documents(collection, limit=1000)
             subject_docs = [
                 d for d in all_docs
                 if d.get("metadata", {}).get("subject") == subject_filter
@@ -150,9 +160,6 @@ class Retriever:
             if not subject_docs:
                 logger.info("全量评分在科目 '%s' 内无命中，使用全局共享知识库", subject_filter)
             all_docs = subject_docs or all_docs
-            if len(all_docs) > 1000:
-                logger.warning("关键词降级在全量 %d 条记录上执行，仅建议小集合使用", len(all_docs))
-                return []
             candidates = all_docs
 
         scored = []

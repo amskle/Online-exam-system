@@ -34,7 +34,7 @@
 
 ```bash
 cp .env.docker.example .env.docker
-# 编辑 .env.docker，填入 LLM API Key
+# 编辑 .env.docker：设置数据库密码、初始管理员密码、随机 JWT 密钥、LLM 与 Embedding API Key
 docker compose --env-file .env.docker up -d --build
 ```
 
@@ -70,6 +70,8 @@ docker compose --env-file .env.docker up -d --build
 ### 管理员端
 
 - **仪表盘** — 系统统计、趋势图表、题型/科目分布
+- **账号管理** — 公开注册仅创建学生账号；教师和管理员账号由管理员创建
+- **账号管理** — 公开注册仅创建学生账号；教师和管理员账号由管理员创建
 - **用户管理** — 学生/老师账号管理、状态封禁、权限展示
 - **科目管理** — 考试科目增删改查
 - **题目管理** — 单选/多选/判断/主观题，支持 408 真题导入
@@ -91,7 +93,7 @@ docker compose --env-file .env.docker up -d --build
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Spring Boot 3.2 · Java 21 · MyBatis-Plus 3.5 · JWT · BCrypt · Redis |
+| 后端 | Spring Boot 3.5 · Java 21 · MyBatis-Plus 3.5 · JWT · BCrypt · Redis |
 | AI 服务 | FastAPI · LangGraph · ChromaDB · DeepSeek API · BGE Embedding |
 | 前端 | Vue 3 · TypeScript · Vite · Element Plus · Pinia · ECharts |
 | 数据库 | MySQL 8.x · Redis · SQLite（会话） · ChromaDB（向量） |

@@ -1,6 +1,8 @@
 package com.example.onlineexamsystem.controller;
 
 
+import com.example.onlineexamsystem.annotation.Auth;
+import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.dto.BaseUserUpdateDTO;
 import com.example.onlineexamsystem.pojo.dto.UserLoginDTO;
@@ -10,6 +12,8 @@ import com.example.onlineexamsystem.pojo.vo.BaseUserVO;
 import com.example.onlineexamsystem.pojo.vo.UserLoginResponseVO;
 import com.example.onlineexamsystem.service.BaseUserService;
 import com.example.onlineexamsystem.service.EmailService;
+import com.example.onlineexamsystem.utils.RedisUtil;
+import com.example.onlineexamsystem.utils.UserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -22,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 
 /**
@@ -37,6 +42,7 @@ public class BaseUserController {
 
     private final BaseUserService baseUserService;
     private final EmailService emailService;
+    private final RedisUtil redisUtil;
 
     @Value("${auth.trusted-device-ttl:7d}")
     private Duration trustedDeviceTtl;
@@ -55,7 +61,8 @@ public class BaseUserController {
             HttpServletRequest request,
             HttpServletResponse response) {
         Map<Integer, String> trustedDeviceTokens = extractTrustedDeviceTokens(request);
-        UserLoginResponseVO userLoginResponseVO = emailService.beginLogin(userLoginDTO, trustedDeviceTokens, response);
+        UserLoginResponseVO userLoginResponseVO = emailService.beginLogin(
+                userLoginDTO, trustedDeviceTokens, response, request.getRemoteAddr());
         return Result.success(userLoginResponseVO);
     }
 
@@ -65,7 +72,9 @@ public class BaseUserController {
      * @return Result<Void>
      */
     @PostMapping("/logout")
+    @Auth
     public Result<Void> logout(HttpServletResponse response) {
+        invalidateActiveTokens(UserContext.getUserId());
         ResponseCookie expired = ResponseCookie.from(AUTH_COOKIE_NAME, "")
                 .httpOnly(true)
                 .secure(secureCookie)
@@ -83,6 +92,7 @@ public class BaseUserController {
      * @return Result<BaseUserVO>
      */
     @GetMapping("/auth")
+    @Auth
     public Result<BaseUserVO> tokenAuth(HttpServletRequest request) {
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) {
@@ -101,8 +111,10 @@ public class BaseUserController {
      * @return Result<String>
      */
     @PostMapping("/register")
-    public Result<UserLoginResponseVO> register(@Valid @RequestBody UserRegisterDTO userRegisterDTO) {
-        return Result.success(emailService.beginRegister(userRegisterDTO));
+    public Result<UserLoginResponseVO> register(
+            @Valid @RequestBody UserRegisterDTO userRegisterDTO,
+            HttpServletRequest request) {
+        return Result.success(emailService.beginRegister(userRegisterDTO, request.getRemoteAddr()));
     }
 
     /**
@@ -111,10 +123,13 @@ public class BaseUserController {
      * @return Result<Void>
      */
     @PutMapping("/{id}/updatePassword")
-    private Result<Void> updatePassword(
+    @Auth
+    public Result<Void> updatePassword(
             @PathVariable Integer id,
             @Valid @RequestBody UserUpdatePasswordDTO userUpdatePasswordDTO) {
+        assertCurrentUser(id);
         baseUserService.updatePassword(id, userUpdatePasswordDTO);
+        invalidateActiveTokens(id);
         return Result.success();
     }
 
@@ -124,7 +139,9 @@ public class BaseUserController {
      * @return Result<UserLoginResponseVO>
      */
     @PutMapping
+    @Auth
     public Result<Void> updateInfo(@Valid @RequestBody BaseUserUpdateDTO baseUserUpdateDTO) {
+        baseUserUpdateDTO.setId(UserContext.getUserId());
         baseUserService.updateInfo(baseUserUpdateDTO);
         return Result.success();
     }
@@ -135,7 +152,9 @@ public class BaseUserController {
      * @return Result<UserLoginResponseVO>
      */
     @PutMapping(value = "/uploadAvatar")
+    @Auth
     public Result<Void> uploadAvatar(@Valid @RequestBody BaseUserUpdateDTO baseUserUpdateDTO) {
+        baseUserUpdateDTO.setId(UserContext.getUserId());
         baseUserService.updateAvatar(baseUserUpdateDTO);
         return Result.success();
     }
@@ -171,5 +190,17 @@ public class BaseUserController {
             }
         }
         return tokens;
+    }
+
+    private void assertCurrentUser(Integer requestedUserId) {
+        if (requestedUserId == null || !requestedUserId.equals(UserContext.getUserId())) {
+            throw new BusinessException("无权修改其他用户信息", 403);
+        }
+    }
+
+    private void invalidateActiveTokens(Integer userId) {
+        if (userId != null) {
+            redisUtil.put("user:login_version:" + userId, UUID.randomUUID().toString(), trustedDeviceTtl);
+        }
     }
 }

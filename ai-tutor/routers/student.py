@@ -48,9 +48,17 @@ async def require_student(
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
+    try:
+        current_user = await exam_bridge.validate_auth(token)
+    except Exception:
+        logger.exception("后端认证服务不可用")
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="登录状态已失效")
     role = claims.get("role")
     if role != ROLE_STUDENT:
         raise HTTPException(status_code=403, detail="仅学生可访问")
+    claims["sub"] = str(current_user.get("id"))
     return token, claims
 
 
@@ -204,7 +212,7 @@ async def ask_question_stream(
 ):
     """
     学生答疑 — SSE 流式版。
-    使用 LangGraph astream(updates) 逐节点推送进度和 LLM token，提供实时打字体验。
+    使用 LangGraph astream(updates) 推送节点进度；答案安全检查通过后再分段推送正文。
     """
     token, claims = auth
     user_id = _extract_user_id(claims)
@@ -251,7 +259,6 @@ async def ask_question_stream(
             "generate": "正在生成回复…",
             "check": "正在检查答案安全性…",
         }
-        draft_reply = ""
         final_reply = ""
 
         try:
@@ -262,32 +269,22 @@ async def ask_question_stream(
                     if status_text:
                         yield f"data: {json.dumps({'type': 'status', 'text': status_text})}\n\n"
 
-                    # generate 节点完成后，模拟逐字流式输出
-                    if node_name == "generate":
-                        draft_reply = node_output.get("draft_reply", "")
-                        if draft_reply:
-                            # 按字符分组发送，模拟打字效果（中文每字符、英文每词）
-                            buffer = ""
-                            for ch in draft_reply:
-                                buffer += ch
-                                # 中文/标点逐字发送，英文单词按空格发送
-                                if ch in "，。！？；：、\n" or (ch == " " and len(buffer) > 1):
-                                    yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
-                                    await asyncio.sleep(0.01)  # 微小延迟，给前端渲染时间
-                                    buffer = ""
-                            if buffer:
-                                yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
-
-                    # check 节点完成后，获取最终回复
+                    # 只有检查节点产出的 final_reply 可以发送给客户端，避免草稿先泄露后撤回。
                     if node_name == "check":
                         final_reply = node_output.get("final_reply", "")
                         hints = node_output.get("hints", [])
                         concepts = node_output.get("related_concepts", [])
                         contains_answer = node_output.get("contains_answer", False)
 
-                        # 如果泄露检测重写了回复，推送替换事件
-                        if final_reply and final_reply != draft_reply:
-                            yield f"data: {json.dumps({'type': 'rewrite', 'text': final_reply})}\n\n"
+                        buffer = ""
+                        for ch in final_reply:
+                            buffer += ch
+                            if ch in "，。！？；：、\n" or (ch == " " and len(buffer) > 1):
+                                yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
+                                await asyncio.sleep(0.01)
+                                buffer = ""
+                        if buffer:
+                            yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
 
                         yield f"data: {json.dumps({
                             'type': 'final',

@@ -7,6 +7,9 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -19,9 +22,17 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class DatabaseMigrationRunner implements ApplicationRunner {
     private static final String SEED_408_KEY = "408-question-bank-2009-2021-v1";
+    private static final String LEGACY_DEFAULT_ADMIN_HASH = "$2b$10$P2rqMDKks/zYfWA.i4f15.3NHkX2tdgECbcFdDNS6VWFK38fiOPVq";
 
     private final JdbcTemplate jdbcTemplate;
     private final DataSource dataSource;
+    private final PasswordEncoder passwordEncoder;
+
+    @Value("${admin.initial-password:}")
+    private String initialAdminPassword;
+
+    @Value("${admin.initial-email:admin@example.com}")
+    private String initialAdminEmail;
 
     /**
      * 启动时执行数据库迁移和种子数据初始化
@@ -38,6 +49,8 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
                     "ALTER TABLE exam_record ADD COLUMN warning_count INT NOT NULL DEFAULT 0 COMMENT '切屏/离开页面次数' AFTER attempt_count");
             addColumnIfMissing(databaseName, "exam_record", "highest_score",
                     "ALTER TABLE exam_record ADD COLUMN highest_score INT NOT NULL DEFAULT 0 COMMENT '历史最高成绩' AFTER score");
+            addColumnIfMissing(databaseName, "exam_record", "create_time",
+                    "ALTER TABLE exam_record ADD COLUMN create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER submit_time");
             addColumnIfMissing(databaseName, "user", "email",
                     "ALTER TABLE user ADD COLUMN email VARCHAR(254) NULL COMMENT '邮箱' AFTER phone");
             addColumnIfMissing(databaseName, "user", "email_verify_time",
@@ -46,10 +59,62 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
                     "ALTER TABLE user ADD UNIQUE INDEX uk_user_email (email)");
             addColumnIfMissing(databaseName, "exam_paper", "auto_grade_enabled",
                     "ALTER TABLE exam_paper ADD COLUMN auto_grade_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否自动阅卷 0否 1是' AFTER status");
+            addIndexIfMissing(databaseName, "exam_paper_question", "idx_paper_question_paper",
+                    "ALTER TABLE exam_paper_question ADD INDEX idx_paper_question_paper (paper_id)");
+            addIndexIfMissing(databaseName, "exam_paper_question", "idx_paper_question_question",
+                    "ALTER TABLE exam_paper_question ADD INDEX idx_paper_question_question (question_id)");
+            addIndexIfMissing(databaseName, "exam_record", "idx_exam_record_user_status",
+                    "ALTER TABLE exam_record ADD INDEX idx_exam_record_user_status (user_id, status)");
+            addIndexIfMissing(databaseName, "exam_record", "idx_exam_record_paper",
+                    "ALTER TABLE exam_record ADD INDEX idx_exam_record_paper (paper_id)");
+            addIndexIfMissing(databaseName, "exam_record", "idx_exam_record_create_time",
+                    "ALTER TABLE exam_record ADD INDEX idx_exam_record_create_time (create_time)");
+            addIndexIfMissing(databaseName, "exam_record_answer", "idx_exam_answer_record",
+                    "ALTER TABLE exam_record_answer ADD INDEX idx_exam_answer_record (record_id)");
+            addIndexIfMissing(databaseName, "wrong_question", "idx_wrong_question_user",
+                    "ALTER TABLE wrong_question ADD INDEX idx_wrong_question_user (user_id, mastered, last_wrong_time)");
         }
         jdbcTemplate.update("UPDATE exam_paper SET max_attempts = 1 WHERE max_attempts IS NULL OR max_attempts < 1");
         jdbcTemplate.update("UPDATE exam_record SET attempt_count = 1 WHERE attempt_count IS NULL OR attempt_count < 1");
+        ensureSecureInitialAdmin();
         runSeedOnce();
+    }
+
+    private void ensureSecureInitialAdmin() {
+        Integer adminCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user WHERE role = 3", Integer.class);
+        if (adminCount != null && adminCount > 0) {
+            Integer legacyAdminCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM user WHERE role = 3 AND password = ?",
+                    Integer.class,
+                    LEGACY_DEFAULT_ADMIN_HASH
+            );
+            if (legacyAdminCount != null && legacyAdminCount > 0) {
+                requireSecureInitialPassword("检测到使用历史默认密码的管理员账号");
+                jdbcTemplate.update(
+                        "UPDATE user SET password = ? WHERE role = 3 AND password = ?",
+                        passwordEncoder.encode(initialAdminPassword),
+                        LEGACY_DEFAULT_ADMIN_HASH
+                );
+            }
+            return;
+        }
+        requireSecureInitialPassword("首次启动");
+        jdbcTemplate.update(
+                "INSERT INTO user (account, password, username, role, email, login_status, create_time) "
+                        + "VALUES (?, ?, ?, 3, ?, 0, ?)",
+                "admin",
+                passwordEncoder.encode(initialAdminPassword),
+                "管理员",
+                initialAdminEmail,
+                LocalDateTime.now()
+        );
+    }
+
+    private void requireSecureInitialPassword(String context) {
+        if (!StringUtils.hasText(initialAdminPassword) || initialAdminPassword.length() < 8) {
+            throw new IllegalStateException(context + "，必须通过 ADMIN_INITIAL_PASSWORD 设置至少8位的新密码");
+        }
     }
 
     /**
@@ -114,6 +179,17 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
                 SEED_408_KEY
         );
         if (count != null && count > 0) {
+            return;
+        }
+        Integer existingSeedRows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM question WHERE subject_name = ? AND content LIKE ?",
+                Integer.class,
+                "408计算机学科专业基础",
+                "【%年408真题第%题】%"
+        );
+        if (existingSeedRows != null && existingSeedRows > 0) {
+            jdbcTemplate.update("INSERT INTO data_seed_log (seed_key, executed_time) VALUES (?, ?)",
+                    SEED_408_KEY, LocalDateTime.now());
             return;
         }
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator();

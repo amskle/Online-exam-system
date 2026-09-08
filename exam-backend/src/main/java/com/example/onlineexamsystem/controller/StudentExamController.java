@@ -15,15 +15,22 @@ import com.example.onlineexamsystem.pojo.vo.ExamRecordDetailVO;
 import com.example.onlineexamsystem.pojo.vo.PageVO;
 import com.example.onlineexamsystem.service.*;
 import com.example.onlineexamsystem.utils.UserContext;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -57,10 +64,13 @@ public class StudentExamController {
      */
     @GetMapping("/examPapers/listPage")
     public Result<PageVO<ExamPaper>> listAvailablePapers(ExamPaperQueryDTO query) {
+        LocalDateTime now = LocalDateTime.now();
         Page<ExamPaper> page = examPaperService.page(
                 Page.of(query.getPageNum(), query.getPageSize()),
                 new LambdaQueryWrapper<ExamPaper>()
                         .eq(ExamPaper::getStatus, 1)
+                        .and(wrapper -> wrapper.isNull(ExamPaper::getStartTime).or().le(ExamPaper::getStartTime, now))
+                        .and(wrapper -> wrapper.isNull(ExamPaper::getEndTime).or().gt(ExamPaper::getEndTime, now))
                         .like(StringUtils.hasText(query.getTitle()), ExamPaper::getTitle, query.getTitle())
                         .orderByDesc(ExamPaper::getCreateTime)
         );
@@ -79,7 +89,14 @@ public class StudentExamController {
      */
     @GetMapping("/examPapers/{id}/detail")
     public Result<ExamPaperDetailVO> paperDetail(@PathVariable Integer id) {
-        return Result.success(examPaperService.detail(id));
+        ExamPaperDetailVO detail = examPaperService.detail(id);
+        validatePaperAvailability(detail);
+        detail.getQuestions().forEach(question -> {
+            question.setAnswer(null);
+            question.setAnalysis(null);
+            question.setCreateTime(null);
+        });
+        return Result.success(detail);
     }
 
     /**
@@ -93,12 +110,19 @@ public class StudentExamController {
      * @return Result<ExamRecord>
      */
     @PostMapping("/examRecords/start")
+    @Transactional
     public Result<ExamRecord> start(@RequestParam Integer paperId) {
         Integer userId = UserContext.getUserId();
-        BaseUser user = baseUserService.getById(userId);
+        BaseUser user = baseUserService.getOne(new LambdaQueryWrapper<BaseUser>()
+                .eq(BaseUser::getId, userId)
+                .last("FOR UPDATE"));
         ExamPaper paper = examPaperService.getById(paperId);
         if (paper == null || !Objects.equals(paper.getStatus(), 1)) {
             throw new BusinessException("试卷不可参加");
+        }
+        validatePaperAvailability(paper);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
         }
         ExamRecord existing = examRecordService.getOne(
                 new LambdaQueryWrapper<ExamRecord>()
@@ -115,7 +139,7 @@ public class StudentExamController {
             if (attempted >= maxAttempts) {
                 throw new BusinessException("考试次数已用完");
             }
-            examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, existing.getId()));
+            removeRecordAnswersIfPresent(existing.getId());
             existing.setUsername(user.getUsername());
             existing.setPaperTitle(paper.getTitle());
             existing.setScore(0);
@@ -157,29 +181,25 @@ public class StudentExamController {
      * @return Result<Void>
      */
     @PostMapping("/examRecords/submit")
-    public Result<Void> submit(@RequestBody StudentExamSubmitDTO dto) {
+    @Transactional
+    public Result<Void> submit(@Valid @RequestBody StudentExamSubmitDTO dto) {
         Integer userId = UserContext.getUserId();
-        ExamRecord record = examRecordService.getById(dto.getRecordId());
-        if (record == null || !Objects.equals(record.getUserId(), userId)) {
-            throw new BusinessException("考试记录不存在");
+        ExamRecord record = getOwnedRecordForUpdate(dto.getRecordId(), userId);
+        if (!Objects.equals(record.getStatus(), 0)) {
+            throw new BusinessException("考试已提交，请勿重复交卷");
         }
         // 后端时间校验：防止前端绕过倒计时
         ExamPaper paper = examPaperService.getById(record.getPaperId());
-        if (paper != null && record.getStartTime() != null && paper.getDuration() != null) {
-            LocalDateTime deadline = record.getStartTime().plusMinutes(paper.getDuration());
-            if (LocalDateTime.now().isAfter(deadline)) {
-                throw new BusinessException("考试时间已结束，无法提交");
-            }
-        }
-        examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, record.getId()));
+        validateSubmissionTime(record, paper);
+        Map<Integer, Integer> scoreByQuestionId = getPaperQuestionScores(record.getPaperId());
+        Map<Integer, Question> questionById = getSubmittedQuestions(dto, scoreByQuestionId);
+        removeRecordAnswersIfPresent(record.getId());
         int totalScore = 0;
+        List<ExamRecordAnswer> answersToSave = new ArrayList<>();
         if (dto.getAnswers() != null) {
             for (var answerDTO : dto.getAnswers()) {
-                Question question = questionService.getById(answerDTO.getQuestionId());
-                if (question == null) {
-                    continue;
-                }
-                int fullScore = getPaperQuestionScore(record.getPaperId(), question);
+                Question question = questionById.get(answerDTO.getQuestionId());
+                int fullScore = scoreByQuestionId.get(answerDTO.getQuestionId());
                 ExamRecordAnswer answer = new ExamRecordAnswer();
                 answer.setRecordId(record.getId());
                 answer.setQuestionId(question.getId());
@@ -193,13 +213,16 @@ public class StudentExamController {
                 boolean objective = question.getType() != null && question.getType() != 4;
                 boolean correct = objective && normalizeAnswer(question.getAnswer()).equals(normalizeAnswer(answerDTO.getUserAnswer()));
                 answer.setScore(correct ? fullScore : 0);
-                answer.setJudgement(correct ? "正确" : "错误");
-                examRecordAnswerService.save(answer);
+                answer.setJudgement(objective ? (correct ? "正确" : "错误") : "待批改");
+                answersToSave.add(answer);
                 totalScore += answer.getScore();
                 if (objective && !correct) {
                     saveWrongQuestion(userId, question, answerDTO.getUserAnswer());
                 }
             }
+        }
+        if (!answersToSave.isEmpty()) {
+            examRecordAnswerService.saveBatch(answersToSave);
         }
         record.setScore(totalScore);
         // 更新历史最高成绩
@@ -219,27 +242,26 @@ public class StudentExamController {
      * @return Result<Void>
      */
     @PostMapping("/examRecords/save-progress")
-    public Result<Void> saveProgress(@RequestBody StudentExamSubmitDTO dto) {
+    @Transactional
+    public Result<Void> saveProgress(@Valid @RequestBody StudentExamSubmitDTO dto) {
         Integer userId = UserContext.getUserId();
-        ExamRecord record = examRecordService.getById(dto.getRecordId());
-        if (record == null || !Objects.equals(record.getUserId(), userId)) {
-            throw new BusinessException("考试记录不存在");
-        }
+        ExamRecord record = getOwnedRecordForUpdate(dto.getRecordId(), userId);
         if (!Objects.equals(record.getStatus(), 0)) {
             throw new BusinessException("考试已结束，无法保存");
         }
+        ExamPaper paper = examPaperService.getById(record.getPaperId());
+        validateSubmissionTime(record, paper);
+        Map<Integer, Integer> scoreByQuestionId = getPaperQuestionScores(record.getPaperId());
+        Map<Integer, Question> questionById = getSubmittedQuestions(dto, scoreByQuestionId);
         if (dto.getAnswers() != null) {
+            Map<Integer, ExamRecordAnswer> existingByQuestionId = new HashMap<>();
+            examRecordAnswerService.list(new LambdaQueryWrapper<ExamRecordAnswer>()
+                            .eq(ExamRecordAnswer::getRecordId, record.getId()))
+                    .forEach(answer -> existingByQuestionId.put(answer.getQuestionId(), answer));
+            List<ExamRecordAnswer> answersToSave = new ArrayList<>();
             for (var answerDTO : dto.getAnswers()) {
-                Question question = questionService.getById(answerDTO.getQuestionId());
-                if (question == null) {
-                    continue;
-                }
-                ExamRecordAnswer existing = examRecordAnswerService.getOne(
-                        new LambdaQueryWrapper<ExamRecordAnswer>()
-                                .eq(ExamRecordAnswer::getRecordId, record.getId())
-                                .eq(ExamRecordAnswer::getQuestionId, answerDTO.getQuestionId())
-                                .last("limit 1")
-                );
+                Question question = questionById.get(answerDTO.getQuestionId());
+                ExamRecordAnswer existing = existingByQuestionId.get(answerDTO.getQuestionId());
                 ExamRecordAnswer answer;
                 if (existing != null) {
                     answer = existing;
@@ -250,12 +272,14 @@ public class StudentExamController {
                     answer.setType(question.getType());
                     answer.setQuestionContent(question.getContent());
                     answer.setOptions(question.getOptions());
-                    answer.setCorrectAnswer(question.getAnswer());
-                    answer.setFullScore(getPaperQuestionScore(record.getPaperId(), question));
+                    answer.setFullScore(scoreByQuestionId.get(question.getId()));
                     answer.setCreateTime(LocalDateTime.now());
                 }
                 answer.setUserAnswer(answerDTO.getUserAnswer());
-                examRecordAnswerService.saveOrUpdate(answer);
+                answersToSave.add(answer);
+            }
+            if (!answersToSave.isEmpty()) {
+                examRecordAnswerService.saveOrUpdateBatch(answersToSave);
             }
         }
         return Result.success();
@@ -297,12 +321,10 @@ public class StudentExamController {
      * @return Result<Void>
      */
     @PostMapping("/examRecords/warn")
+    @Transactional
     public Result<Void> warn(@RequestParam Integer recordId) {
         Integer userId = UserContext.getUserId();
-        ExamRecord record = examRecordService.getById(recordId);
-        if (record == null || !Objects.equals(record.getUserId(), userId)) {
-            throw new BusinessException("考试记录不存在");
-        }
+        ExamRecord record = getOwnedRecordForUpdate(recordId, userId);
         if (!Objects.equals(record.getStatus(), 0)) {
             throw new BusinessException("考试已结束");
         }
@@ -310,6 +332,31 @@ public class StudentExamController {
         record.setWarningCount(count + 1);
         examRecordService.updateById(record);
         return Result.success();
+    }
+
+    private ExamRecord getOwnedRecordForUpdate(Integer recordId, Integer userId) {
+        ExamRecord record = examRecordService.getOne(new LambdaQueryWrapper<ExamRecord>()
+                .eq(ExamRecord::getId, recordId)
+                .last("FOR UPDATE"));
+        if (record == null || !Objects.equals(record.getUserId(), userId)) {
+            throw new BusinessException("考试记录不存在");
+        }
+        return record;
+    }
+
+    /**
+     * Avoid issuing a range DELETE for a record that has no saved answers.
+     * Under MySQL REPEATABLE READ, deleting a missing secondary-index key can
+     * take a gap lock and deadlock with concurrent first-time answer inserts.
+     * The caller already holds the exam-record row lock, so the existence check
+     * and optional delete are safe for this record.
+     */
+    private void removeRecordAnswersIfPresent(Integer recordId) {
+        LambdaQueryWrapper<ExamRecordAnswer> wrapper = new LambdaQueryWrapper<ExamRecordAnswer>()
+                .eq(ExamRecordAnswer::getRecordId, recordId);
+        if (examRecordAnswerService.count(wrapper) > 0) {
+            examRecordAnswerService.remove(wrapper);
+        }
     }
 
     /**
@@ -323,8 +370,10 @@ public class StudentExamController {
      * @return Result<PageVO<ExamRecord>>
      */
     @GetMapping("/examRecords/listPage")
+    @Transactional
     public Result<PageVO<ExamRecord>> myRecords(ExamRecordQueryDTO query) {
         Integer userId = UserContext.getUserId();
+        finalizeExpiredRecords(userId);
         Page<ExamRecord> page = examRecordService.page(
                 Page.of(query.getPageNum(), query.getPageSize()),
                 new LambdaQueryWrapper<ExamRecord>()
@@ -434,17 +483,123 @@ public class StudentExamController {
      * @param question 题目对象
      * @return int 题目分值
      */
-    private int getPaperQuestionScore(Integer paperId, Question question) {
-        ExamPaperQuestion relation = examPaperQuestionService.getOne(
-                new LambdaQueryWrapper<ExamPaperQuestion>()
-                        .eq(ExamPaperQuestion::getPaperId, paperId)
-                        .eq(ExamPaperQuestion::getQuestionId, question.getId())
-                        .last("limit 1")
-        );
-        if (relation != null && relation.getPaperScore() != null) {
-            return relation.getPaperScore();
+    private Map<Integer, Integer> getPaperQuestionScores(Integer paperId) {
+        Map<Integer, Integer> scores = new HashMap<>();
+        for (ExamPaperQuestion relation : examPaperQuestionService.list(
+                new LambdaQueryWrapper<ExamPaperQuestion>().eq(ExamPaperQuestion::getPaperId, paperId))) {
+            if (relation.getQuestionId() != null && relation.getPaperScore() != null) {
+                scores.put(relation.getQuestionId(), relation.getPaperScore());
+            }
         }
-        return question.getScore() == null ? 0 : question.getScore();
+        return scores;
+    }
+
+    private Map<Integer, Question> getSubmittedQuestions(StudentExamSubmitDTO dto,
+                                                          Map<Integer, Integer> scoreByQuestionId) {
+        if (dto.getAnswers() == null || dto.getAnswers().isEmpty()) {
+            return Map.of();
+        }
+        Set<Integer> ids = new HashSet<>();
+        for (StudentQuestionAnswerDTO answer : dto.getAnswers()) {
+            if (!ids.add(answer.getQuestionId())) {
+                throw new BusinessException("同一道题不能重复提交");
+            }
+            if (!scoreByQuestionId.containsKey(answer.getQuestionId())) {
+                throw new BusinessException("提交内容包含不属于该试卷的题目");
+            }
+        }
+        Map<Integer, Question> questions = new HashMap<>();
+        questionService.listByIds(ids).forEach(question -> questions.put(question.getId(), question));
+        if (questions.size() != ids.size()) {
+            throw new BusinessException("试卷包含已失效的题目，请联系管理员");
+        }
+        return questions;
+    }
+
+    private void validatePaperAvailability(ExamPaper paper) {
+        LocalDateTime now = LocalDateTime.now();
+        if (!Objects.equals(paper.getStatus(), 1)
+                || paper.getStartTime() != null && now.isBefore(paper.getStartTime())
+                || paper.getEndTime() != null && !now.isBefore(paper.getEndTime())) {
+            throw new BusinessException("试卷当前不可参加");
+        }
+    }
+
+    private void validateSubmissionTime(ExamRecord record, ExamPaper paper) {
+        if (paper == null || record.getStartTime() == null || paper.getDuration() == null) {
+            throw new BusinessException("考试时间配置异常");
+        }
+        LocalDateTime deadline = record.getStartTime().plusMinutes(paper.getDuration());
+        if (paper.getEndTime() != null && paper.getEndTime().isBefore(deadline)) {
+            deadline = paper.getEndTime();
+        }
+        // 为倒计时归零后的自动交卷与网络传输保留一个很小的宽限窗口。
+        if (LocalDateTime.now().isAfter(deadline.plusSeconds(30))) {
+            throw new BusinessException("考试时间已结束，无法提交");
+        }
+    }
+
+    private void finalizeExpiredRecords(Integer userId) {
+        List<ExamRecord> activeRecords = examRecordService.list(
+                new LambdaQueryWrapper<ExamRecord>()
+                        .eq(ExamRecord::getUserId, userId)
+                        .eq(ExamRecord::getStatus, 0)
+                        .last("FOR UPDATE")
+        );
+        LocalDateTime now = LocalDateTime.now();
+        for (ExamRecord record : activeRecords) {
+            ExamPaper paper = examPaperService.getById(record.getPaperId());
+            if (paper == null || record.getStartTime() == null || paper.getDuration() == null) {
+                continue;
+            }
+            LocalDateTime deadline = record.getStartTime().plusMinutes(paper.getDuration());
+            if (paper.getEndTime() != null && paper.getEndTime().isBefore(deadline)) {
+                deadline = paper.getEndTime();
+            }
+            if (now.isAfter(deadline.plusSeconds(30))) {
+                finalizeFromDraft(record, deadline);
+            }
+        }
+    }
+
+    private void finalizeFromDraft(ExamRecord record, LocalDateTime submitTime) {
+        List<ExamRecordAnswer> answers = examRecordAnswerService.list(
+                new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, record.getId())
+        );
+        Set<Integer> questionIds = answers.stream()
+                .map(ExamRecordAnswer::getQuestionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Integer, Question> questionById = new HashMap<>();
+        if (!questionIds.isEmpty()) {
+            questionService.listByIds(questionIds).forEach(question -> questionById.put(question.getId(), question));
+        }
+        int totalScore = 0;
+        for (ExamRecordAnswer answer : answers) {
+            Question question = questionById.get(answer.getQuestionId());
+            if (question == null) {
+                continue;
+            }
+            boolean objective = question.getType() != null && question.getType() != 4;
+            boolean correct = objective
+                    && normalizeAnswer(question.getAnswer()).equals(normalizeAnswer(answer.getUserAnswer()));
+            answer.setCorrectAnswer(question.getAnswer());
+            answer.setScore(correct ? answer.getFullScore() : 0);
+            answer.setJudgement(objective ? (correct ? "正确" : "错误") : "待批改");
+            totalScore += answer.getScore() == null ? 0 : answer.getScore();
+            if (objective && !correct) {
+                saveWrongQuestion(record.getUserId(), question, answer.getUserAnswer());
+            }
+        }
+        if (!answers.isEmpty()) {
+            examRecordAnswerService.updateBatchById(answers);
+        }
+        record.setScore(totalScore);
+        int currentHighest = record.getHighestScore() == null ? 0 : record.getHighestScore();
+        record.setHighestScore(Math.max(currentHighest, totalScore));
+        record.setStatus(1);
+        record.setSubmitTime(submitTime);
+        examRecordService.updateById(record);
     }
 
     /**

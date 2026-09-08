@@ -200,7 +200,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:root}           # 从环境变量读取，默认 root
-    password: ${DB_PASSWORD:327510}         # 从环境变量读取
+    password: ${DB_PASSWORD}                # 必须从环境变量读取
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:                                  # HikariCP 连接池参数
       minimum-idle: 5                       # 最小空闲连接数
@@ -291,10 +291,10 @@ auth:
   trusted-device-secure-cookie: false
 
 jwt:
-  secret: ${JWT_SECRET:t8Kx9mN2vB5qW3pL7sF4cH6jU1yR8eZ0aD5gJ9nM2xP4sV7wC3}
+  secret: ${JWT_SECRET}
 ```
 
-这些是项目自定义的配置项。在代码中通过 `@Value("${auth.email-code-ttl}")` 读取。`jwt.secret` 的默认值是给开发环境用的，生产环境必须通过 `JWT_SECRET` 环境变量覆盖。
+这些是项目自定义的配置项。在代码中通过 `@Value("${auth.email-code-ttl}")` 读取。`jwt.secret` 不提供默认值，所有环境都必须通过 `JWT_SECRET` 注入至少 32 字节的随机密钥。
 
 ### 2.4 配置类全景——Spring Boot 如何装配 Bean
 
@@ -466,9 +466,9 @@ exam-backend/src/main/resources/application.yml
 | `spring.mail` | QQ SMTP | 配置错误时日志会提示 |
 | `spring.sql.init` | `mode: always` | 每次重启都会执行 `schema-admin.sql` |
 | `mybatis-plus` | `log-impl` | 执行任何查询，控制台会打印 SQL |
-| `jwt.secret` | `${JWT_SECRET:...}` | 用环境变量覆盖测试 |
+| `jwt.secret` | `${JWT_SECRET}` | 必须通过环境变量设置 |
 
-**关键观察**：`username: ${DB_USERNAME:root}` 和 `password: ${DB_PASSWORD:327510}`——密码从环境变量读。本地开发时如果没有设置 `DB_PASSWORD` 环境变量，就用硬编码的默认值；Docker 部署时，`docker-compose.yml` 注入环境变量覆盖。
+**关键观察**：`username: ${DB_USERNAME:root}` 和 `password: ${DB_PASSWORD}`——账号可使用本地默认值，但密码没有硬编码回退；本地开发和 Docker 部署都必须显式注入 `DB_PASSWORD`。
 
 ### 3.4 阅读 CorsConfig
 

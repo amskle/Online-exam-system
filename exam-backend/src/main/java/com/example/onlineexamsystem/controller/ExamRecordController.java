@@ -104,6 +104,7 @@ public class ExamRecordController {
      * @return Result<Void>
      */
     @DeleteMapping("/{id:\\d+}")
+    @org.springframework.transaction.annotation.Transactional
     public Result<Void> delete(@PathVariable Integer id) {
         examRecordAnswerService.remove(new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, id));
         examRecordService.removeById(id);

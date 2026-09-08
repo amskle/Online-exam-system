@@ -4,6 +4,8 @@ import com.example.onlineexamsystem.annotation.Auth;
 import com.example.onlineexamsystem.common.exception.BusinessException;
 import com.example.onlineexamsystem.pojo.api.Result;
 import com.example.onlineexamsystem.pojo.api.ResultCode;
+import com.example.onlineexamsystem.mapper.BaseUserMapper;
+import com.example.onlineexamsystem.pojo.entity.BaseUser;
 import com.example.onlineexamsystem.utils.JwtUtil;
 import com.example.onlineexamsystem.utils.RedisUtil;
 import com.example.onlineexamsystem.utils.UserContext;
@@ -28,11 +30,11 @@ import java.lang.reflect.Method;
 public class JwtInterceptor implements HandlerInterceptor {
     private final JwtUtil jwtUtil;
     private final RedisUtil redisUtil;
-    // 不需要拦截的路径（使用 startsWith 精确匹配路径前缀）
+    private final BaseUserMapper baseUserMapper;
+    // 仅精确放行公开入口，避免相似前缀路径被意外加入白名单
     private static final String[] EXCLUDE_PATHS = {
             "/user/login",
-            "/user/register",
-            "/files/upload"
+            "/user/register"
     };
 
     /**
@@ -44,11 +46,12 @@ public class JwtInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response,
                              Object handler) throws Exception {
+        UserContext.clear();
         String path = request.getRequestURI();
-        log.info("拦截请求：{}", path);
+        log.debug("拦截请求：{}", path);
         // 检查是否在白名单中
         if (isExcludePath(path)) {
-            log.info("白名单放行：{}", path);
+            log.debug("白名单放行：{}", path);
             return true;
         }
         // 如果不是方法级别的映射，直接放行
@@ -94,6 +97,16 @@ public class JwtInterceptor implements HandlerInterceptor {
                 throw new BusinessException("token中无用户信息");
             }
             Integer role = jwtUtil.getRole(token);
+            BaseUser currentUser = baseUserMapper.selectById(userId);
+            if (currentUser == null) {
+                throw new BusinessException("用户不存在或已被删除", 401);
+            }
+            if (Boolean.TRUE.equals(currentUser.getLoginStatus())) {
+                throw new BusinessException("账号已被停用", 403);
+            }
+            if (role == null || !role.equals(currentUser.getRole())) {
+                throw new BusinessException("账号权限已变更，请重新登录", 401);
+            }
             // 将用户信息存储到 ThreadLocal
             UserContext.setUser(userId, role);
 
@@ -117,7 +130,6 @@ public class JwtInterceptor implements HandlerInterceptor {
                     return false;
                 }
             }
-            UserContext.setUser(userId, role);
             log.info("用户上下文已设置：userId：{}, role：{}", userId, role);
 
             log.info("鉴权通过：{} (userId={}, role={})", path, userId, role);
@@ -125,11 +137,25 @@ public class JwtInterceptor implements HandlerInterceptor {
             // 有 @Auth 注解且没有指定角色，只需要登录即可，已经登录成功，放行
             return true;
 
+        } catch (BusinessException e) {
+            if (e.getCode() == 403) {
+                handleForbidden(response, e.getMessage());
+            } else {
+                handleUnauthorized(response, e.getMessage());
+            }
+            return false;
         } catch (Exception e) {
-            handleUnauthorized(response, "认证失败：" + e.getMessage());
+            log.debug("JWT 认证失败", e);
+            handleUnauthorized(response, "认证令牌无效或已过期");
             return false;
         }
 
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        UserContext.clear();
     }
 
     /**
@@ -196,11 +222,11 @@ public class JwtInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * 检查路径是否在白名单中（使用 startsWith 精确匹配路径前缀）
+     * 检查路径是否在白名单中（仅精确匹配）
      */
     private boolean isExcludePath(String path) {
         for (String excludePath : EXCLUDE_PATHS) {
-            if (path.startsWith(excludePath)) {
+            if (path.equals(excludePath)) {
                 return true;
             }
         }

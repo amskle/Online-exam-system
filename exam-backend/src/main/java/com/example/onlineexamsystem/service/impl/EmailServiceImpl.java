@@ -74,6 +74,9 @@ public class EmailServiceImpl implements EmailService {
     @Value("${auth.email-daily-limit:10}")
     private int dailyLimit;
 
+    @Value("${auth.email-ip-daily-limit:10}")
+    private int ipDailyLimit;
+
     @Value("${auth.trusted-device-ttl:7d}")
     private Duration trustedDeviceTtl;
 
@@ -82,7 +85,7 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public UserLoginResponseVO beginLogin(UserLoginDTO dto, Map<Integer, String> trustedDeviceTokens,
-                                          HttpServletResponse response) {
+                                          HttpServletResponse response, String clientIp) {
         String account = dto.getAccount().trim();
         String failKey = LOGIN_FAIL_PREFIX + account;
 
@@ -109,12 +112,6 @@ public class EmailServiceImpl implements EmailService {
                 && redisUtil.hasKey(trustedDeviceKey(user.getId(), trustedDeviceToken))) {
             return authenticated(user, response);
         }
-        // 回落：Redis 重启后信任设备 token 丢失，但 email_verify_time 存于 MySQL 不会丢
-        if (user.getEmailVerifyTime() != null
-                && Duration.between(user.getEmailVerifyTime(), LocalDateTime.now()).compareTo(trustedDeviceTtl) < 0) {
-            return authenticated(user, response);
-        }
-
         String challengeId = UUID.randomUUID().toString();
         Map<String, String> challenge = new HashMap<>();
         challenge.put("purpose", PURPOSE_LOGIN);
@@ -129,11 +126,11 @@ public class EmailServiceImpl implements EmailService {
         if (!StringUtils.hasText(user.getEmail())) {
             return challengeResponse(STATUS_EMAIL_REQUIRED, challengeId, null);
         }
-        return dispatchCode(challengeId, normalizeEmail(user.getEmail()), PURPOSE_LOGIN);
+        return dispatchCode(challengeId, normalizeEmail(user.getEmail()), PURPOSE_LOGIN, clientIp);
     }
 
     @Override
-    public UserLoginResponseVO beginRegister(UserRegisterDTO dto) {
+    public UserLoginResponseVO beginRegister(UserRegisterDTO dto, String clientIp) {
         String account = dto.getAccount().trim();
         String email = normalizeEmail(dto.getEmail());
         ensureAccountAvailable(account);
@@ -150,11 +147,11 @@ public class EmailServiceImpl implements EmailService {
         challenge.put("attempts", "0");
         challenge.put("state", "CREATED");
         redisUtil.putHash(challengeKey(challengeId), challenge, codeTtl);
-        return dispatchCode(challengeId, email, PURPOSE_REGISTER);
+        return dispatchCode(challengeId, email, PURPOSE_REGISTER, clientIp);
     }
 
     @Override
-    public UserLoginResponseVO sendCode(EmailSendDTO dto) {
+    public UserLoginResponseVO sendCode(EmailSendDTO dto, String clientIp) {
         String key = challengeKey(dto.getChallengeId());
         Map<String, String> challenge = redisUtil.getHash(key);
         if (challenge.isEmpty()) {
@@ -171,7 +168,7 @@ public class EmailServiceImpl implements EmailService {
             Integer userId = Integer.valueOf(challenge.get("userId"));
             ensureEmailAvailable(email, userId);
         }
-        return dispatchCode(dto.getChallengeId(), email, purpose);
+        return dispatchCode(dto.getChallengeId(), email, purpose, clientIp);
     }
 
     @Override
@@ -211,31 +208,57 @@ public class EmailServiceImpl implements EmailService {
         return new VerificationResult(authenticated(user, response), deviceToken, user.getId());
     }
 
-    private UserLoginResponseVO dispatchCode(String challengeId, String email, String purpose) {
-        reserveEmailSend(email);
+    private UserLoginResponseVO dispatchCode(String challengeId, String email, String purpose, String clientIp) {
+        RateLimitReservation reservation = reserveEmailSend(email, clientIp);
         String code = String.format("%06d", secureRandom.nextInt(1_000_000));
         String key = challengeKey(challengeId);
         redisUtil.updateChallengeCode(key, email, hash(challengeId + ":" + code), codeTtl);
+        // 异步发送验证码邮件，避免 SMTP 阻塞登录/注册请求；发送失败时清理状态并记录日志
         try {
-            emailUtil.sendVerificationCode(email, code, purpose);
+            emailUtil.sendVerificationCode(email, code, purpose).exceptionally(ex -> {
+                log.error("验证码邮件发送失败，email={}, purpose={}", email, purpose, ex);
+                cleanupFailedSend(key, reservation);
+                return null;
+            });
         } catch (RuntimeException ex) {
-            log.error("验证码邮件发送失败，email={}, purpose={}", email, purpose, ex);
-            redisUtil.delete(key);
-            redisUtil.delete(emailCooldownKey(email));
-            redisUtil.decrementIfExists(emailDailyKey(email));
-            throw new BusinessException("验证码邮件发送失败，请检查邮件配置后重试");
+            log.error("验证码邮件发送启动失败，email={}, purpose={}", email, purpose, ex);
+            cleanupFailedSend(key, reservation);
+            throw new BusinessException("验证码邮件发送失败，请检查邮件配置后重试", 503);
         }
         return challengeResponse(STATUS_VERIFICATION_REQUIRED, challengeId, email);
     }
 
-    private void reserveEmailSend(String email) {
-        if (!redisUtil.setIfAbsent(emailCooldownKey(email), "1", sendCooldown)) {
+    private RateLimitReservation reserveEmailSend(String email, String clientIp) {
+        String cooldownKey = emailCooldownKey(email);
+        String emailDailyKey = emailDailyKey(email);
+        String ipDailyKey = ipDailyKey(clientIp);
+        if (!redisUtil.setIfAbsent(cooldownKey, "1", sendCooldown)) {
             throw new BusinessException("验证码发送过于频繁，请稍后再试", 429);
         }
-        if (redisUtil.increment(emailDailyKey(email), Duration.ofDays(2)) > dailyLimit) {
-            redisUtil.delete(emailCooldownKey(email));
+        if (redisUtil.increment(emailDailyKey, Duration.ofDays(2)) > dailyLimit) {
+            redisUtil.delete(cooldownKey);
             throw new BusinessException("该邮箱今日发送次数已达上限", 429);
         }
+        if (redisUtil.increment(ipDailyKey, Duration.ofDays(2)) > ipDailyLimit) {
+            redisUtil.delete(cooldownKey);
+            redisUtil.decrementIfExists(emailDailyKey);
+            throw new BusinessException("当前网络今日发送次数已达上限", 429);
+        }
+        return new RateLimitReservation(cooldownKey, emailDailyKey, ipDailyKey);
+    }
+
+    private void cleanupFailedSend(String challengeKey, RateLimitReservation reservation) {
+        try {
+            redisUtil.delete(challengeKey);
+            redisUtil.delete(reservation.cooldownKey());
+            redisUtil.decrementIfExists(reservation.emailDailyKey());
+            redisUtil.decrementIfExists(reservation.ipDailyKey());
+        } catch (RuntimeException cleanupError) {
+            log.error("验证码发送失败后的状态清理异常", cleanupError);
+        }
+    }
+
+    private record RateLimitReservation(String cooldownKey, String emailDailyKey, String ipDailyKey) {
     }
 
     private String emailCooldownKey(String email) {
@@ -244,6 +267,11 @@ public class EmailServiceImpl implements EmailService {
 
     private String emailDailyKey(String email) {
         return "auth:email:daily:" + LocalDate.now() + ":" + hash(email);
+    }
+
+    private String ipDailyKey(String clientIp) {
+        String normalizedIp = StringUtils.hasText(clientIp) ? clientIp.trim() : "unknown";
+        return "auth:email:ip-daily:" + LocalDate.now() + ":" + hash(normalizedIp);
     }
 
     private BaseUser createRegisteredUser(Map<String, String> challenge) {

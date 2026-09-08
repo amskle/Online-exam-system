@@ -17,6 +17,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 考试记录服务实现类
@@ -58,18 +63,43 @@ public class ExamRecordServiceImpl extends ServiceImpl<ExamRecordMapper, ExamRec
         if (dto.getRecordId() == null || dto.getAnswers() == null) {
             throw new BusinessException("批改参数不能为空");
         }
+        ExamRecord existing = this.getById(dto.getRecordId());
+        if (existing == null) {
+            throw new BusinessException("考试记录不存在");
+        }
+        List<ExamRecordAnswer> answers = examRecordAnswerService.list(
+                new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, dto.getRecordId())
+        );
+        Map<Integer, ExamRecordAnswer> storedById = answers.stream()
+                .collect(Collectors.toMap(ExamRecordAnswer::getId, Function.identity()));
+        Set<Integer> answerIds = new HashSet<>();
         for (GradeAnswerDTO answer : dto.getAnswers()) {
+            if (answer.getAnswerId() == null || answer.getScore() == null) {
+                throw new BusinessException("批改题目和分数不能为空");
+            }
+            if (!answerIds.add(answer.getAnswerId())) {
+                throw new BusinessException("同一道题不能重复批改");
+            }
+            ExamRecordAnswer stored = storedById.get(answer.getAnswerId());
+            if (stored == null) {
+                throw new BusinessException("批改内容不属于该考试记录");
+            }
+            if (!Integer.valueOf(4).equals(stored.getType())) {
+                throw new BusinessException("只能人工批改主观题");
+            }
+            int fullScore = stored.getFullScore() == null ? 0 : stored.getFullScore();
+            if (answer.getScore() < 0 || answer.getScore() > fullScore) {
+                throw new BusinessException("批改分数必须在0到题目满分之间");
+            }
             ExamRecordAnswer update = new ExamRecordAnswer();
             update.setId(answer.getAnswerId());
             update.setScore(answer.getScore());
             update.setJudgement(answer.getJudgement());
             examRecordAnswerService.updateById(update);
+            stored.setScore(answer.getScore());
+            stored.setJudgement(answer.getJudgement());
         }
-        List<ExamRecordAnswer> answers = examRecordAnswerService.list(
-                new LambdaQueryWrapper<ExamRecordAnswer>().eq(ExamRecordAnswer::getRecordId, dto.getRecordId())
-        );
         int score = answers.stream().mapToInt(item -> item.getScore() == null ? 0 : item.getScore()).sum();
-        ExamRecord existing = this.getById(dto.getRecordId());
         ExamRecord record = new ExamRecord();
         record.setId(dto.getRecordId());
         record.setScore(score);

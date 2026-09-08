@@ -28,6 +28,21 @@ class ExamBridge:
     def _headers(self, token: str) -> dict:
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+    async def validate_auth(self, token: str) -> dict | None:
+        """让后端校验用户是否仍存在、未被停用且登录版本有效。"""
+        r = await self._get_client().get(
+            f"{self.base}/user/auth",
+            headers=self._headers(token),
+        )
+        if r.status_code in (401, 403):
+            return None
+        r.raise_for_status()
+        body = r.json()
+        if not isinstance(body, dict) or body.get("code") != 200:
+            return None
+        data = body.get("data")
+        return data if isinstance(data, dict) else None
+
     # ── 题目相关 ──────────────────────────────────
 
     async def get_questions(
@@ -40,9 +55,12 @@ class ExamBridge:
         size: int = 20,
     ) -> dict:
         """分页获取题目列表"""
-        params = {"page": page, "size": size}
+        params = {"pageNum": page, "pageSize": size}
         if subject_name:
-            params["subjectName"] = subject_name
+            subject_id = await self.get_subject_id(token, subject_name)
+            if subject_id is None:
+                return {"code": 200, "message": "success", "data": {"records": [], "total": 0}}
+            params["subjectId"] = subject_id
         if question_type is not None:
             params["type"] = question_type
         if difficulty is not None:
@@ -73,7 +91,7 @@ class ExamBridge:
         """获取学生错题集"""
         r = await self._get_client().get(
             f"{self.base}/student/wrongQuestions/listPage",
-            params={"page": page, "size": size},
+            params={"pageNum": page, "pageSize": size},
             headers=self._headers(token),
         )
         r.raise_for_status()
@@ -104,7 +122,7 @@ class ExamBridge:
         """
         r = await self._get_client().get(
             f"{self.base}/student/examRecords/listPage",
-            params={"page": 1, "size": 1, "status": 0},
+            params={"pageNum": 1, "pageSize": 1, "status": 0},
             headers=self._headers(token),
         )
         r.raise_for_status()
@@ -118,10 +136,13 @@ class ExamBridge:
     async def get_question_stats(self, token: str, subject_name: str | None = None) -> dict:
         """获取题库统计（按题型聚合），使用 question/listPage（teacher 可访问，无需 admin）"""
         stats: dict[str, int] = {}
+        subject_id = await self.get_subject_id(token, subject_name) if subject_name else None
+        if subject_name and subject_id is None:
+            return {**{f"type_{qtype}": 0 for qtype in range(1, 5)}, "_subject": subject_name}
         for qtype in range(1, 5):
-            params: dict = {"page": 1, "size": 1, "type": qtype}
-            if subject_name:
-                params["subjectName"] = subject_name
+            params: dict = {"pageNum": 1, "pageSize": 1, "type": qtype}
+            if subject_id is not None:
+                params["subjectId"] = subject_id
             try:
                 r = await self._get_client().get(
                     f"{self.base}/question/listPage",

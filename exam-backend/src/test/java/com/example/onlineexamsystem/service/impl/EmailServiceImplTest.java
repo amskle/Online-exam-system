@@ -45,6 +45,7 @@ class EmailServiceImplTest {
         ReflectionTestUtils.setField(emailService, "codeTtl", Duration.ofMinutes(5));
         ReflectionTestUtils.setField(emailService, "sendCooldown", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(emailService, "dailyLimit", 10);
+        ReflectionTestUtils.setField(emailService, "ipDailyLimit", 10);
         ReflectionTestUtils.setField(emailService, "trustedDeviceTtl", Duration.ofDays(7));
         ReflectionTestUtils.setField(emailService, "secureCookie", false);
     }
@@ -66,10 +67,33 @@ class EmailServiceImplTest {
         doThrow(new RuntimeException("SMTP auth failed"))
                 .when(emailUtil).sendVerificationCode(eq("test@example.com"), anyString(), eq("LOGIN"));
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> emailService.sendCode(dto));
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> emailService.sendCode(dto, "203.0.113.8"));
 
         assertEquals("验证码邮件发送失败，请检查邮件配置后重试", ex.getMessage());
         verify(redisUtil).delete("auth:challenge:challenge-1");
+        verify(redisUtil).delete(argThat(key -> key.startsWith("auth:email:cooldown:")));
+        verify(redisUtil).decrementIfExists(argThat(key -> key.startsWith("auth:email:daily:")));
+        verify(redisUtil).decrementIfExists(argThat(key -> key.startsWith("auth:email:ip-daily:")));
+    }
+
+    @Test
+    void sendCode_shouldRejectAndRollbackEmailReservation_whenIpDailyLimitIsExceeded() {
+        EmailSendDTO dto = new EmailSendDTO();
+        dto.setChallengeId("challenge-2");
+        Map<String, String> challenge = new HashMap<>();
+        challenge.put("purpose", "LOGIN");
+        challenge.put("email", "test@example.com");
+        when(redisUtil.getHash("auth:challenge:challenge-2")).thenReturn(challenge);
+        when(redisUtil.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(true);
+        when(redisUtil.increment(anyString(), any(Duration.class))).thenReturn(1L, 11L);
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> emailService.sendCode(dto, "203.0.113.9"));
+
+        assertEquals("当前网络今日发送次数已达上限", ex.getMessage());
         verify(redisUtil).delete(argThat(key -> key.startsWith("auth:email:cooldown:")));
         verify(redisUtil).decrementIfExists(argThat(key -> key.startsWith("auth:email:daily:")));
     }

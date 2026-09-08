@@ -30,6 +30,8 @@
         <el-upload
           class="avatar-uploader"
           :action="`${apiBaseUrl}/files/upload`"
+          :headers="uploadHeaders"
+          :with-credentials="true"
           :show-file-list="false"
           :before-upload="beforeAvatarUpload"
           :on-success="handleUploadSuccess"
@@ -48,7 +50,7 @@
       </div>
       <div>
         <p>邮箱</p>
-        <el-input v-model="updateInfoDTO.email" placeholder="请输入邮箱" />
+        <el-input v-model="updateInfoDTO.email" disabled placeholder="邮箱修改需重新验证" />
       </div>
       <div>
         <p>性别</p>
@@ -70,12 +72,13 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowDownBold, EditPen, Operation, Plus, TurnOff } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type Action, type UploadProps } from 'element-plus'
-import { clearAllAuth, getRoleName } from '@/utils/localStorage'
+import { clearAllAuth, getRoleName, getToken } from '@/utils/localStorage'
 import { logoutApi, updatePasswordApi, uploadAvatarApi, userTokenAuthApi, userUpdateInfoApi } from '@/api/user-api'
 import type { BaseUserUpdateDTO, BaseUserVO, UserUpdatePasswordDTO } from '@/types/user'
 
 const router = useRouter()
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+const uploadHeaders = getToken() ? { Authorization: `Bearer ${getToken()}` } : {}
 const baseUser = ref<BaseUserVO>({})
 const updatePasswordDTO = ref<UserUpdatePasswordDTO>({})
 const updateInfoDTO = ref<BaseUserUpdateDTO>({})
@@ -167,9 +170,9 @@ const logout = () => {
 }
 
 const beforeAvatarUpload: UploadProps['beforeUpload'] = (rawFile) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/svg+xml']
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']
   if (!allowedTypes.includes(rawFile.type)) {
-    ElMessage.error('不支持的图片格式，请上传 JPG/PNG/WEBP/GIF/BMP/SVG 格式')
+    ElMessage.error('不支持的图片格式，请上传 JPG/PNG/WEBP/GIF/BMP 格式')
     return false
   }
   if (rawFile.size / 1024 / 1024 > 2) {

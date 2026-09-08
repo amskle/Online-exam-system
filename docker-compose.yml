@@ -12,8 +12,10 @@ services:
     container_name: exam-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env.docker 中设置 MySQL 根密码}
       MYSQL_DATABASE: exam
+      MYSQL_USER: ${DB_USERNAME:-exam_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请在 .env.docker 中设置数据库密码}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -22,7 +24,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:?请设置 MySQL 根密码}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -52,13 +54,16 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/exam?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       SPRING_DATA_REDIS_HOST: redis
       # 数据库凭据
-      DB_USERNAME: ${DB_USERNAME:-root}
-      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_USERNAME: ${DB_USERNAME:-exam_app}
+      DB_PASSWORD: ${DB_PASSWORD:?请在 .env.docker 中设置数据库密码}
       # JWT 密钥（必须与 ai-tutor 一致）
-      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env.docker 中设置至少32位的随机 JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8076,http://localhost:8088}
       # 邮件配置（从 .env.docker 注入）
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_AUTH_CODE: ${MAIL_AUTH_CODE:-}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?请在 .env.docker 中设置初始管理员密码}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@example.com}
     depends_on:
       mysql:
         condition: service_healthy
@@ -66,6 +71,12 @@ services:
         condition: service_healthy
     volumes:
       - backend_files:/app/file
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8077/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
 
   # ── FastAPI 智能学习伙伴 ──
   ai-tutor:
@@ -77,10 +88,11 @@ services:
     environment:
       EXAM_BACKEND_URL: http://backend:8077
       # LLM API（从 .env.docker 注入，不硬编码到镜像）
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:?请在 .env.docker 中设置 LLM_API_KEY}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:?请在 .env.docker 中设置 EMBEDDING_API_KEY}
       # JWT 密钥（必须与 backend 一致）
-      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env.docker 中设置至少32位的随机 JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8076,http://localhost:8088}
       # 数据目录
       VECTOR_DB_PATH: /app/data/chroma_store
       SESSION_DB_PATH: /app/data/chat_sessions.db
@@ -96,10 +108,17 @@ services:
       QUERY_REWRITE_ENABLED: ${QUERY_REWRITE_ENABLED:-true}
       QUERY_REWRITE_MAX_VARIANTS: ${QUERY_REWRITE_MAX_VARIANTS:-5}
       QUERY_REWRITE_HISTORY_LIMIT: ${QUERY_REWRITE_HISTORY_LIMIT:-6}
+      QUERY_REWRITE_CONCURRENCY: ${QUERY_REWRITE_CONCURRENCY:-3}
     depends_on:
       - backend
     volumes:
       - ai_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ai/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
 
   # ── Nginx 前端 ──
   nginx:
@@ -111,8 +130,10 @@ services:
     ports:
       - "8088:80"
     depends_on:
-      - backend
-      - ai-tutor
+      backend:
+        condition: service_healthy
+      ai-tutor:
+        condition: service_healthy
 
 # ── 持久化卷 ──
 volumes:

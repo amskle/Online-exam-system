@@ -4,12 +4,15 @@
 用法:
     python -m eval.run_eval --collection teacher --samples 10
     python -m eval.run_eval --collection teacher --samples 10 --output report.json
+    python -m eval.run_eval --mode student-agent --dataset student_cases.json
+    python -m eval.run_eval --mode teacher-agent --dataset teacher_cases.json
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import json
 import sys
 from pathlib import Path
 
@@ -23,7 +26,24 @@ logger = logging.getLogger("eval")
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="RAG 评估运行器")
+    parser = argparse.ArgumentParser(
+        description="RAG / 完整 LangGraph 评估运行器",
+        epilog=(
+            "学生用例字段：question_content、correct_answer、message、token；"
+            "教师用例字段：subject_id、subject_name、question_type、difficulty、count、token。"
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        default="rag",
+        choices=["rag", "student-agent", "teacher-agent"],
+        help="评估模式；teacher-agent 会调用真实题目入库接口",
+    )
+    parser.add_argument(
+        "--dataset",
+        default=None,
+        help="Agent 模式的 JSON 用例文件（数组或包含 cases 数组的对象）",
+    )
     parser.add_argument(
         "--collection", "-c",
         default="teacher",
@@ -42,6 +62,29 @@ async def main():
         help="JSON 报告输出路径 (可选)",
     )
     args = parser.parse_args()
+
+    if args.mode != "rag":
+        if not args.dataset:
+            parser.error("Agent 模式必须通过 --dataset 提供 JSON 用例")
+        payload = json.loads(Path(args.dataset).read_text(encoding="utf-8"))
+        cases = payload.get("cases", []) if isinstance(payload, dict) else payload
+        if not isinstance(cases, list) or not cases:
+            parser.error("Agent 评估数据集必须包含非空 cases 数组")
+        from eval.agent_runner import (
+            run_student_agent_evaluation,
+            run_teacher_agent_evaluation,
+        )
+        if args.mode == "student-agent":
+            report = await run_student_agent_evaluation(cases)
+        else:
+            report = await run_teacher_agent_evaluation(cases)
+        rendered = json.dumps(report, ensure_ascii=False, indent=2)
+        print(rendered)
+        if args.output:
+            Path(args.output).write_text(rendered, encoding="utf-8")
+        if not report["overall_pass"]:
+            sys.exit(2)
+        return
 
     # Step 1: 构建数据集
     logger.info("━━━ Step 1: 构建评估数据集 ━━━")

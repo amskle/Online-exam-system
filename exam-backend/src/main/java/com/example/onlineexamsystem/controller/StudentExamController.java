@@ -196,6 +196,7 @@ public class StudentExamController {
         removeRecordAnswersIfPresent(record.getId());
         int totalScore = 0;
         List<ExamRecordAnswer> answersToSave = new ArrayList<>();
+        List<WrongQuestion> wrongAnswers = new ArrayList<>();
         if (dto.getAnswers() != null) {
             for (var answerDTO : dto.getAnswers()) {
                 Question question = questionById.get(answerDTO.getQuestionId());
@@ -217,13 +218,14 @@ public class StudentExamController {
                 answersToSave.add(answer);
                 totalScore += answer.getScore();
                 if (objective && !correct) {
-                    saveWrongQuestion(userId, question, answerDTO.getUserAnswer());
+                    wrongAnswers.add(buildWrongQuestion(userId, question, answerDTO.getUserAnswer()));
                 }
             }
         }
         if (!answersToSave.isEmpty()) {
             examRecordAnswerService.saveBatch(answersToSave);
         }
+        wrongQuestionService.recordWrongAnswers(wrongAnswers);
         record.setScore(totalScore);
         // 更新历史最高成绩
         int currentHighest = record.getHighestScore() == null ? 0 : record.getHighestScore();
@@ -335,6 +337,7 @@ public class StudentExamController {
     }
 
     private ExamRecord getOwnedRecordForUpdate(Integer recordId, Integer userId) {
+        lockExamUser(userId);
         ExamRecord record = examRecordService.getOne(new LambdaQueryWrapper<ExamRecord>()
                 .eq(ExamRecord::getId, recordId)
                 .last("FOR UPDATE"));
@@ -342,6 +345,14 @@ public class StudentExamController {
             throw new BusinessException("考试记录不存在");
         }
         return record;
+    }
+
+    private void lockExamUser(Integer userId) {
+        // Match start(): user first, then record, then answers/wrong questions.
+        if (baseUserService.getOne(new LambdaQueryWrapper<BaseUser>()
+                .eq(BaseUser::getId, userId).last("FOR UPDATE")) == null) {
+            throw new BusinessException("用户不存在");
+        }
     }
 
     /**
@@ -540,6 +551,7 @@ public class StudentExamController {
     }
 
     private void finalizeExpiredRecords(Integer userId) {
+        lockExamUser(userId);
         List<ExamRecord> activeRecords = examRecordService.list(
                 new LambdaQueryWrapper<ExamRecord>()
                         .eq(ExamRecord::getUserId, userId)
@@ -575,6 +587,7 @@ public class StudentExamController {
             questionService.listByIds(questionIds).forEach(question -> questionById.put(question.getId(), question));
         }
         int totalScore = 0;
+        List<WrongQuestion> wrongAnswers = new ArrayList<>();
         for (ExamRecordAnswer answer : answers) {
             Question question = questionById.get(answer.getQuestionId());
             if (question == null) {
@@ -588,12 +601,13 @@ public class StudentExamController {
             answer.setJudgement(objective ? (correct ? "正确" : "错误") : "待批改");
             totalScore += answer.getScore() == null ? 0 : answer.getScore();
             if (objective && !correct) {
-                saveWrongQuestion(record.getUserId(), question, answer.getUserAnswer());
+                wrongAnswers.add(buildWrongQuestion(record.getUserId(), question, answer.getUserAnswer()));
             }
         }
         if (!answers.isEmpty()) {
             examRecordAnswerService.updateBatchById(answers);
         }
+        wrongQuestionService.recordWrongAnswers(wrongAnswers);
         record.setScore(totalScore);
         int currentHighest = record.getHighestScore() == null ? 0 : record.getHighestScore();
         record.setHighestScore(Math.max(currentHighest, totalScore));
@@ -638,22 +652,7 @@ public class StudentExamController {
      * @param question 题目对象
      * @param userAnswer 用户答案
      */
-    private void saveWrongQuestion(Integer userId, Question question, String userAnswer) {
-        WrongQuestion existed = wrongQuestionService.getOne(
-                new LambdaQueryWrapper<WrongQuestion>()
-                        .eq(WrongQuestion::getUserId, userId)
-                        .eq(WrongQuestion::getQuestionId, question.getId())
-                        .last("limit 1")
-        );
-        if (existed != null) {
-            existed.setWrongCount((existed.getWrongCount() == null ? 0 : existed.getWrongCount()) + 1);
-            existed.setUserAnswer(userAnswer);
-            existed.setCorrectAnswer(question.getAnswer());
-            existed.setMastered(false);
-            existed.setLastWrongTime(LocalDateTime.now());
-            wrongQuestionService.updateById(existed);
-            return;
-        }
+    private WrongQuestion buildWrongQuestion(Integer userId, Question question, String userAnswer) {
         WrongQuestion wrongQuestion = new WrongQuestion();
         BeanUtils.copyProperties(question, wrongQuestion);
         wrongQuestion.setId(null);
@@ -665,6 +664,6 @@ public class StudentExamController {
         wrongQuestion.setMastered(false);
         wrongQuestion.setLastWrongTime(LocalDateTime.now());
         wrongQuestion.setCreateTime(LocalDateTime.now());
-        wrongQuestionService.save(wrongQuestion);
+        return wrongQuestion;
     }
 }

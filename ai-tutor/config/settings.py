@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 100
     retrieval_top_k: int = 5
     embedding_max_chars: int = 8000  # BAAI/bge-large-zh-v1.5 上限 512 tokens，中文字符按 1 token/字截断 改用bge-m3上限8192
+    embedding_batch_size: int = Field(default=32, ge=1, le=256)
     use_unstructured: bool = False
     document_classifier: str = "rule"
     notes_soft_token_limit: int = 256

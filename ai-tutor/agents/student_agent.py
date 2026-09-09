@@ -110,6 +110,15 @@ def _extract_concepts(context: str) -> list[str]:
     return []
 
 
+def _aggregate_student_output(reply: str, hints: list[str], concepts: list[str]) -> str:
+    """把所有学生可见字段合并为同一个安全检查边界。"""
+    return "\n".join([
+        "【最终回复】", reply,
+        "【提示】", *hints,
+        "【相关概念】", *concepts,
+    ])
+
+
 async def _regenerate_safe_reply(state: StudentState) -> str:
     """答案泄露时重新生成安全回复"""
     prompt = f"""你之前的回复不小心包含了答案信息。请重新生成一段引导性回复。
@@ -133,8 +142,8 @@ def _safe_fallback_reply() -> str:
     return "我先不直接判断答案。请写出你用到的知识点和推理步骤，我们从第一步一起检查。"
 
 
-async def _llm_detect_leak(state: StudentState, reply: str) -> bool:
-    """让独立 LLM 判断回复是否包含直接或间接答案；非预期输出按失败处理。"""
+async def _llm_detect_leak(state: StudentState, exposed_output: str) -> bool:
+    """检查完整学生可见输出；非预期输出按失败处理。"""
     prompt = f"""请严格检查以下 AI 助教的回复是否泄露了正确答案。
 
 【题目】
@@ -143,13 +152,13 @@ async def _llm_detect_leak(state: StudentState, reply: str) -> bool:
 【正确答案】（绝对不能透露给学生的内容）
 {state.get("correct_answer", "")}
 
-【AI 回复】
-{reply}
+【学生可见输出（回复、提示、相关概念）】
+{exposed_output}
 
 检查规则：
-1. 回复中是否直接出现了正确答案的值？（如答案选项字母、判断结果、关键数字等）
-2. 回复中是否通过排除法隐式给出了答案？（如 "A不对，B也不对，只剩下C了"）
-3. 回复是否过于明显地暗示了正确答案？
+1. 任一可见字段是否直接出现了正确答案的值？（如答案选项字母、判断结果、关键数字等）
+2. 任一字段是否通过排除法隐式给出了答案？（如 "A不对，B也不对，只剩下C了"）
+3. 回复、提示或相关概念是否过于明显地暗示了正确答案？
 
 只输出一个词：LEAK（泄露了）或 SAFE（安全）。不要输出其他内容。"""
     raw = (await chat_text(prompt, temperature=0.1, max_tokens=32)).strip().upper()
@@ -324,18 +333,21 @@ async def generate_reply(state: StudentState) -> StudentState:
 
 
 async def leak_check(state: StudentState) -> StudentState:
-    """节点5: 答案泄露检查 — 确定性 + LLM 双重检查"""
+    """节点5: 对回复、hints、related_concepts 整体执行双重泄露检查。"""
     draft = state.get("draft_reply", "")
     correct = state.get("correct_answer", "")
+    hints = _extract_hints(state.get("socratic_plan", ""))
+    concepts = _extract_concepts(state.get("knowledge_context", ""))
+    exposed_output = _aggregate_student_output(draft, hints, concepts)
 
     # ── 1. 确定性检查 ──
-    det_leak = _deterministic_leak(correct, draft)
+    det_leak = _deterministic_leak(correct, exposed_output)
 
     # ── 2. LLM 严格检查 ──
     llm_leak = False
     if not det_leak and correct:
         try:
-            llm_leak = await _llm_detect_leak(state, draft)
+            llm_leak = await _llm_detect_leak(state, exposed_output)
         except Exception as e:
             logger.warning("LLM 泄露检查失败: %s", e)
             state["warnings"].append("答案泄露检查不可用，已使用安全兜底回复")
@@ -345,13 +357,19 @@ async def leak_check(state: StudentState) -> StudentState:
         logger.info("答案泄露检测命中或不可用，正在重写回复")
         state["contains_answer"] = True
         regenerated = await _regenerate_safe_reply(state)
-        if _deterministic_leak(correct, regenerated):
+        # 命中后不再复用来自规划/RAG 的衍生字段；它们与正文处于同一泄露边界。
+        safe_hints: list[str] = []
+        safe_concepts: list[str] = []
+        regenerated_output = _aggregate_student_output(
+            regenerated, safe_hints, safe_concepts
+        )
+        if _deterministic_leak(correct, regenerated_output):
             state["final_reply"] = _safe_fallback_reply()
         elif correct:
             try:
                 state["final_reply"] = (
                     _safe_fallback_reply()
-                    if await _llm_detect_leak(state, regenerated)
+                    if await _llm_detect_leak(state, regenerated_output)
                     else regenerated
                 )
             except Exception as e:
@@ -360,12 +378,13 @@ async def leak_check(state: StudentState) -> StudentState:
                 state["final_reply"] = _safe_fallback_reply()
         else:
             state["final_reply"] = regenerated
+        state["hints"] = safe_hints
+        state["related_concepts"] = safe_concepts
     else:
         state["contains_answer"] = False
         state["final_reply"] = draft
-
-    state["hints"] = _extract_hints(state["socratic_plan"])
-    state["related_concepts"] = _extract_concepts(state.get("knowledge_context", ""))
+        state["hints"] = hints
+        state["related_concepts"] = concepts
     return state
 
 

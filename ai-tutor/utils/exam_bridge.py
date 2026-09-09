@@ -8,6 +8,10 @@ settings = get_settings()
 logger = logging.getLogger("ai-tutor.bridge")
 
 
+class ExamBridgeError(RuntimeError):
+    """后端 HTTP 或业务响应失败。"""
+
+
 class ExamBridge:
     """封装对 exam-backend (Spring Boot) 的 HTTP 调用，共享一个 AsyncClient"""
 
@@ -28,6 +32,28 @@ class ExamBridge:
     def _headers(self, token: str) -> dict:
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+    @staticmethod
+    def _checked_body(response: httpx.Response, operation: str) -> dict:
+        """同时校验 HTTP 状态、JSON 结构和 Spring Boot Result.code。"""
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ExamBridgeError(
+                f"{operation} HTTP 失败: {response.status_code}"
+            ) from exc
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ExamBridgeError(f"{operation} 返回了无效 JSON") from exc
+        if not isinstance(body, dict):
+            raise ExamBridgeError(f"{operation} 响应格式无效")
+        if body.get("code") != 200:
+            message = body.get("message") or body.get("msg") or "未知业务错误"
+            raise ExamBridgeError(
+                f"{operation} 业务失败: code={body.get('code')}, message={message}"
+            )
+        return body
+
     async def validate_auth(self, token: str) -> dict | None:
         """让后端校验用户是否仍存在、未被停用且登录版本有效。"""
         r = await self._get_client().get(
@@ -36,9 +62,9 @@ class ExamBridge:
         )
         if r.status_code in (401, 403):
             return None
-        r.raise_for_status()
-        body = r.json()
-        if not isinstance(body, dict) or body.get("code") != 200:
+        try:
+            body = self._checked_body(r, "校验登录状态")
+        except ExamBridgeError:
             return None
         data = body.get("data")
         return data if isinstance(data, dict) else None
@@ -70,18 +96,24 @@ class ExamBridge:
             params=params,
             headers=self._headers(token),
         )
-        r.raise_for_status()
-        return r.json()
+        return self._checked_body(r, "获取题目列表")
 
-    async def create_question(self, token: str, question: dict) -> dict:
-        """创建题目（教师智能体生成后自动入库）"""
+    async def create_question(self, token: str, question: dict) -> int:
+        """创建题目并返回 Spring Boot 持久化后生成的真实主键。"""
         r = await self._get_client().post(
             f"{self.base}/question",
             json=question,
             headers=self._headers(token),
         )
-        r.raise_for_status()
-        return r.json()
+        body = self._checked_body(r, "创建题目")
+        data = body.get("data")
+        if isinstance(data, dict):
+            data = data.get("id")
+        if isinstance(data, str) and data.isdigit():
+            data = int(data)
+        if not isinstance(data, int) or isinstance(data, bool) or data <= 0:
+            raise ExamBridgeError("创建题目成功响应中缺少真实题目 ID")
+        return data
 
     # ── 错题相关 ──────────────────────────────────
 
@@ -94,8 +126,7 @@ class ExamBridge:
             params={"pageNum": page, "pageSize": size},
             headers=self._headers(token),
         )
-        r.raise_for_status()
-        return r.json()
+        return self._checked_body(r, "获取错题列表")
 
     async def get_wrong_question(self, token: str, wrong_id: int) -> dict | None:
         """
@@ -125,8 +156,7 @@ class ExamBridge:
             params={"pageNum": 1, "pageSize": 1, "status": 0},
             headers=self._headers(token),
         )
-        r.raise_for_status()
-        body = r.json()
+        body = self._checked_body(r, "获取进行中考试")
         data = body.get("data", {})
         records = data.get("records", []) if isinstance(data, dict) else []
         return records[0] if records else None
@@ -149,8 +179,7 @@ class ExamBridge:
                     params=params,
                     headers=self._headers(token),
                 )
-                r.raise_for_status()
-                body = r.json()
+                body = self._checked_body(r, f"获取题型 {qtype} 统计")
                 data = body.get("data", {}) if isinstance(body, dict) else {}
                 stats[f"type_{qtype}"] = data.get("total", 0)
             except Exception:
@@ -166,8 +195,7 @@ class ExamBridge:
             f"{self.base}/subject/list",
             headers=self._headers(token),
         )
-        r.raise_for_status()
-        body = r.json()
+        body = self._checked_body(r, "获取科目列表")
         subjects = body.get("data", []) if isinstance(body, dict) else body if isinstance(body, list) else []
         return subjects
 

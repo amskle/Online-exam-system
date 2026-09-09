@@ -24,7 +24,7 @@ class EmbeddingService:
         self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """批量向量化（超过模型上限的文本自动截断）"""
+        """分批向量化；批内去重并保持输入顺序。"""
         if not texts:
             return []
         truncated = []
@@ -37,8 +37,19 @@ class EmbeddingService:
                 )
             else:
                 truncated.append(t)
-        resp = await self.client.embeddings.create(model=self.model, input=truncated)
-        return [d.embedding for d in resp.data]
+        unique_texts = list(dict.fromkeys(truncated))
+        vectors_by_text: dict[str, list[float]] = {}
+        batch_size = settings.embedding_batch_size
+        for start in range(0, len(unique_texts), batch_size):
+            batch = unique_texts[start:start + batch_size]
+            resp = await self.client.embeddings.create(model=self.model, input=batch)
+            if len(resp.data) != len(batch):
+                raise RuntimeError(
+                    f"Embedding 返回数量不一致：请求 {len(batch)}，返回 {len(resp.data)}"
+                )
+            for text, item in zip(batch, resp.data):
+                vectors_by_text[text] = item.embedding
+        return [vectors_by_text[text] for text in truncated]
 
     async def embed_one(self, text: str) -> list[float]:
         """单条向量化（带缓存，检索查询多为重复知识点）"""

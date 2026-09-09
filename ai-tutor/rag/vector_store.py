@@ -1,5 +1,6 @@
 """向量存储 — ChromaDB PersistentClient（HNSW 索引，O(log n) 检索）"""
 import logging
+import threading
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -25,6 +26,8 @@ _DEFAULT_META = {
     "created_at": 0,
     "modified_at": 0,
     "uploaded_at": 0,
+    "content_hash": "",
+    "upload_id": "",
 }
 
 
@@ -44,6 +47,7 @@ class VectorStore:
             name="student_kb",
             metadata={"hnsw:space": "cosine"},
         )
+        self._write_lock = threading.RLock()
 
     # ── 写入 ──
 
@@ -70,6 +74,111 @@ class VectorStore:
             return
         clean_metas = [self._clean_metadata(m) for m in metadatas]
         self._student.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=clean_metas)
+
+    @staticmethod
+    def _chunks(items: list, size: int):
+        for start in range(0, len(items), size):
+            yield items[start:start + size]
+
+    def _existing_ids(self, collection, ids: list[str]) -> set[str]:
+        existing: set[str] = set()
+        for batch in self._chunks(ids, settings.embedding_batch_size):
+            if batch:
+                existing.update(collection.get(ids=batch, include=[]).get("ids", []))
+        return existing
+
+    @staticmethod
+    def _delete_ids(collection, ids: list[str]):
+        if ids:
+            collection.delete(ids=ids)
+
+    def add_consistent_pairs(
+        self,
+        teacher_ids: list[str],
+        student_ids: list[str],
+        teacher_documents: list[str],
+        student_documents: list[str],
+        teacher_embeddings: list[list[float]],
+        student_embeddings: list[list[float]],
+        metadatas: list[dict],
+    ) -> dict[str, int]:
+        """串行化双库提交，避免并发上传的去重/补偿竞态。"""
+        lock = getattr(self, "_write_lock", None)
+        if lock is None:
+            lock = self._write_lock = threading.RLock()
+        with lock:
+            return self._add_consistent_pairs_locked(
+                teacher_ids, student_ids, teacher_documents, student_documents,
+                teacher_embeddings, student_embeddings, metadatas,
+            )
+
+    def _add_consistent_pairs_locked(
+        self,
+        teacher_ids: list[str],
+        student_ids: list[str],
+        teacher_documents: list[str],
+        student_documents: list[str],
+        teacher_embeddings: list[list[float]],
+        student_embeddings: list[list[float]],
+        metadatas: list[dict],
+    ) -> dict[str, int]:
+        """成对写入双库；失败时删除本次新增内容，避免留下半次上传。"""
+        lengths = {
+            len(teacher_ids), len(student_ids), len(teacher_documents),
+            len(student_documents), len(teacher_embeddings),
+            len(student_embeddings), len(metadatas),
+        }
+        if len(lengths) != 1:
+            raise ValueError("双库写入参数长度不一致")
+        if not teacher_ids:
+            return {"inserted": 0, "deduplicated": 0}
+        if len(set(teacher_ids)) != len(teacher_ids) or len(set(student_ids)) != len(student_ids):
+            raise ValueError("双库写入 ID 存在重复")
+
+        clean_metas = [self._clean_metadata(meta) for meta in metadatas]
+        teacher_before = self._existing_ids(self._teacher, teacher_ids)
+        student_before = self._existing_ids(self._student, student_ids)
+        teacher_added = [doc_id for doc_id in teacher_ids if doc_id not in teacher_before]
+        student_added = [doc_id for doc_id in student_ids if doc_id not in student_before]
+
+        def add_missing(collection, ids, documents, embeddings, wanted):
+            indices = [i for i, doc_id in enumerate(ids) if doc_id in wanted]
+            for index_batch in self._chunks(indices, settings.embedding_batch_size):
+                collection.add(
+                    ids=[ids[i] for i in index_batch],
+                    documents=[documents[i] for i in index_batch],
+                    embeddings=[embeddings[i] for i in index_batch],
+                    metadatas=[clean_metas[i] for i in index_batch],
+                )
+
+        try:
+            add_missing(
+                self._teacher, teacher_ids, teacher_documents,
+                teacher_embeddings, set(teacher_added),
+            )
+            add_missing(
+                self._student, student_ids, student_documents,
+                student_embeddings, set(student_added),
+            )
+            teacher_after = self._existing_ids(self._teacher, teacher_ids)
+            student_after = self._existing_ids(self._student, student_ids)
+            if teacher_after != set(teacher_ids) or student_after != set(student_ids):
+                raise RuntimeError("双库写入后完整性校验失败")
+        except Exception:
+            # 删除所有本次调用前不存在的目标 ID；即使底层发生部分批次写入也能补偿。
+            self._delete_ids(self._teacher, teacher_added)
+            self._delete_ids(self._student, student_added)
+            logger.exception("双库写入失败，已执行补偿删除")
+            raise
+
+        paired_before = sum(
+            1 for teacher_id, student_id in zip(teacher_ids, student_ids)
+            if teacher_id in teacher_before and student_id in student_before
+        )
+        return {
+            "inserted": len(teacher_ids) - paired_before,
+            "deduplicated": paired_before,
+        }
 
     @staticmethod
     def _clean_metadata(metadata: dict) -> dict:

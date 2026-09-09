@@ -1,5 +1,6 @@
 """教师智能体 API 路由 — 出题、推荐、文档上传"""
 import logging
+import hashlib
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, UploadFile, File, Form
 
@@ -22,6 +23,7 @@ from rag.embeddings import embedding_service
 from rag.query_rewriter import query_rewrite_memory
 from rag.vector_store import vector_store
 from rag.retriever import retriever
+from rag.sanitizer import strip_answer_content
 import uuid
 import json
 import os
@@ -529,20 +531,56 @@ async def upload_document(
         if not chunks:
             return ApiResponse(code=400, message="文档中未检测到有效内容", data=None)
 
-        full_texts = [c.content for c in chunks]
-        metadatas = [c.metadata for c in chunks]
-
-        # ── 教师库：完整文本向量化并入库 ──
-        full_embeddings = await embedding_service.embed(full_texts)
         upload_id = uuid.uuid4().hex
-        teacher_ids = [f"teacher_{upload_id}_{i}" for i in range(len(chunks))]
-        vector_store.add_to_teacher(teacher_ids, full_texts, full_embeddings, metadatas)
+        records: dict[str, tuple[str, str, dict]] = {}
+        dropped_empty = 0
+        for chunk in chunks:
+            full_text = chunk.content.strip()
+            student_text = strip_answer_content(full_text)
+            if not student_text:
+                dropped_empty += 1
+                continue
+            normalized = " ".join(full_text.split())
+            digest = hashlib.sha256(
+                f"{subject_name}\0{normalized}".encode("utf-8")
+            ).hexdigest()[:32]
+            if digest not in records:
+                metadata = dict(chunk.metadata)
+                metadata.update({"content_hash": digest, "upload_id": upload_id})
+                records[digest] = (full_text, student_text, metadata)
 
-        # ── 学生库：剥离答案后单独向量化，确保向量与文本一致 ──
-        student_texts = [_strip_answer(t) for t in full_texts]
+        if not records:
+            return ApiResponse(code=400, message="清洗后没有可安全入库的内容", data=None)
+
+        duplicate_count = len(chunks) - dropped_empty - len(records)
+        if dropped_empty:
+            result.warnings.append(f"已跳过 {dropped_empty} 个仅含答案或解析的知识块")
+        if duplicate_count:
+            result.warnings.append(f"已合并 {duplicate_count} 个重复知识块")
+
+        digests = list(records)
+        full_texts = [records[digest][0] for digest in digests]
+        student_texts = [records[digest][1] for digest in digests]
+        metadatas = [records[digest][2] for digest in digests]
+        teacher_ids = [f"teacher_{digest}" for digest in digests]
+        student_ids = [f"student_{digest}" for digest in digests]
+
+        # EmbeddingService 内部分批；学生文本单独向量化，避免答案影响学生侧向量。
+        full_embeddings = await embedding_service.embed(full_texts)
         student_embeddings = await embedding_service.embed(student_texts)
-        student_ids = [f"student_{upload_id}_{i}" for i in range(len(chunks))]
-        vector_store.add_to_student(student_ids, student_texts, student_embeddings, metadatas)
+        write_stats = vector_store.add_consistent_pairs(
+            teacher_ids=teacher_ids,
+            student_ids=student_ids,
+            teacher_documents=full_texts,
+            student_documents=student_texts,
+            teacher_embeddings=full_embeddings,
+            student_embeddings=student_embeddings,
+            metadatas=metadatas,
+        )
+        if write_stats["deduplicated"]:
+            result.warnings.append(
+                f"向量库中已有 {write_stats['deduplicated']} 个相同知识块，未重复写入"
+            )
 
         return ApiResponse(
             code=200,
@@ -550,12 +588,15 @@ async def upload_document(
             data=DocumentUploadData(
                 file_name=file.filename,
                 subject_name=subject_name,
-                chunk_count=len(chunks),
+                chunk_count=len(records),
                 format=result.format,
                 structure_type=result.structure_type,
                 chunking_strategy=result.chunking_strategy,
                 warnings=result.warnings,
-                message=f"已将 {len(chunks)} 个知识块分别写入教师库和学生库",
+                message=(
+                    f"双库一致性写入完成：新增/修复 {write_stats['inserted']} 个，"
+                    f"复用 {write_stats['deduplicated']} 个"
+                ),
             ),
         )
     except HTTPException:
@@ -594,12 +635,8 @@ async def clear_knowledge_base(auth=Depends(require_admin)):
 
 
 def _strip_answer(text: str) -> str:
-    """从题目文本中剥离答案信息，用于学生库"""
-    import re
-    text = re.sub(r'答案[：:]\s*[^\n]+', '', text)
-    text = re.sub(r'正确答案[：:]\s*[^\n]+', '', text)
-    text = re.sub(r'Answer[：:]\s*[^\n]+', '', text, flags=re.IGNORECASE)
-    return text.strip()
+    """兼容旧调用；实际清洗逻辑集中在 rag.sanitizer。"""
+    return strip_answer_content(text)
 
 
 def _format_source_label(metadata: dict) -> str:

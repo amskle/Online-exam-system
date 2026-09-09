@@ -54,4 +54,4 @@ app.include_router(student.router, prefix="/ai/student", tags=["学生智能体"
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=settings.app_port, reload=settings.debug)
+    uvicorn.run(app, host="0.0.0.0", port=settings.app_port, reload=False)

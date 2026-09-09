@@ -362,8 +362,8 @@ async def save_to_db(state: TeacherState) -> TeacherState:
                 "analysis": q.get("analysis", ""),
                 "score": q.get("score", 5),
             }
-            await exam_bridge.create_question(state["token"], payload)
-            saved.append(i + 1)  # 用序号标识（后端 add 返回 Result<Void>）
+            question_id = await exam_bridge.create_question(state["token"], payload)
+            saved.append(question_id)
         except Exception as e:
             msg = f"第{i + 1}题入库失败: {e!s}"
             failed.append({"index": i, "content_preview": q.get("content", "")[:50], "reason": msg})

@@ -73,6 +73,10 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
                     "ALTER TABLE exam_record_answer ADD INDEX idx_exam_answer_record (record_id)");
             addIndexIfMissing(databaseName, "wrong_question", "idx_wrong_question_user",
                     "ALTER TABLE wrong_question ADD INDEX idx_wrong_question_user (user_id, mastered, last_wrong_time)");
+            // Enforce one wrong-answer record per user/question. Existing duplicates cause migration
+            // to fail explicitly; never silently discard historical wrong-answer records.
+            addIndexIfMissing(databaseName, "wrong_question", "uk_wrong_question_user_question",
+                    "ALTER TABLE wrong_question ADD UNIQUE INDEX uk_wrong_question_user_question (user_id, question_id)");
         }
         jdbcTemplate.update("UPDATE exam_paper SET max_attempts = 1 WHERE max_attempts IS NULL OR max_attempts < 1");
         jdbcTemplate.update("UPDATE exam_record SET attempt_count = 1 WHERE attempt_count IS NULL OR attempt_count < 1");

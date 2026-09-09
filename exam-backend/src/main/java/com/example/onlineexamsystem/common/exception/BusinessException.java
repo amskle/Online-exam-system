@@ -8,7 +8,7 @@ import lombok.Getter;
  */
 @Getter
 public class BusinessException extends RuntimeException {
-    private Integer code;
+    private final Integer code;
 
     /**
      * 构造业务异常

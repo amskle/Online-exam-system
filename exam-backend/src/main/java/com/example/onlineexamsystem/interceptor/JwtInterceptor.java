@@ -92,11 +92,11 @@ public class JwtInterceptor implements HandlerInterceptor {
                 throw new BusinessException("请先登录...");
             }
             // 解析用户信息
-            Integer userId = jwtUtil.getUserId(token);
+            Integer userId = Integer.valueOf(claims.getSubject());
             if (userId == null || userId == 0) {
                 throw new BusinessException("token中无用户信息");
             }
-            Integer role = jwtUtil.getRole(token);
+            Integer role = claims.get("role", Integer.class);
             BaseUser currentUser = baseUserMapper.selectById(userId);
             if (currentUser == null) {
                 throw new BusinessException("用户不存在或已被删除", 401);
@@ -111,7 +111,7 @@ public class JwtInterceptor implements HandlerInterceptor {
             UserContext.setUser(userId, role);
 
             // 顶号检测：验证 JWT 中的登录版本号是否与 Redis 一致
-            String loginVersion = jwtUtil.getLoginVersion(token);
+            String loginVersion = claims.get("loginVer", String.class);
             if (loginVersion != null) {
                 String storedVersion = redisUtil.get("user:login_version:" + userId);
                 if (storedVersion != null && !storedVersion.equals(loginVersion)) {
@@ -130,9 +130,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                     return false;
                 }
             }
-            log.info("用户上下文已设置：userId：{}, role：{}", userId, role);
-
-            log.info("鉴权通过：{} (userId={}, role={})", path, userId, role);
+            log.debug("鉴权通过：{} (userId={}, role={})", path, userId, role);
 
             // 有 @Auth 注解且没有指定角色，只需要登录即可，已经登录成功，放行
             return true;

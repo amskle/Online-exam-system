@@ -75,20 +75,22 @@ public class QuestionController {
     /**
      * 新增题目
      *
-     * @return Result<Void>
+     * @return Result<Integer> 保存后生成的题目主键
      */
     /**
      * 新增题目
      *
-     * @return Result<Void>
+     * @return Result<Integer> 保存后生成的题目主键
      */
     @PostMapping
-    public Result<Void> add(@RequestBody Question question) {
+    public Result<Integer> add(@RequestBody Question question) {
         validateAndNormalize(question);
         question.setId(null);
         question.setCreateTime(LocalDateTime.now());
-        questionService.save(question);
-        return Result.success();
+        if (!questionService.save(question) || question.getId() == null) {
+            throw new BusinessException("题目新增失败");
+        }
+        return Result.success(question.getId());
     }
 
     /**

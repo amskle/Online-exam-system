@@ -20,7 +20,9 @@ async def lifespan(app: FastAPI):
     logger.info("ai-tutor 启动 (port %d, debug=%s)", settings.app_port, settings.debug)
     yield
     from utils.exam_bridge import exam_bridge
+    from utils.observability import shutdown_langfuse
     await exam_bridge.close()
+    shutdown_langfuse()
     logger.info("ai-tutor 已关闭")
 
 

@@ -16,6 +16,7 @@ from agents.common import (
 from config.settings import get_settings
 from rag.retriever import retriever
 from utils.exam_bridge import exam_bridge
+from utils.observability import trace_node
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.agent.student")
@@ -393,12 +394,24 @@ async def leak_check(state: StudentState) -> StudentState:
 def build_student_graph() -> StateGraph:
     workflow = StateGraph(StudentState)
 
-    workflow.add_node("load_context", load_question_context)
-    workflow.add_node("understand", understand_question)
-    workflow.add_node("retrieve", retrieve_knowledge)
-    workflow.add_node("plan", socratic_plan)
-    workflow.add_node("generate", generate_reply)
-    workflow.add_node("check", leak_check)
+    workflow.add_node(
+        "load_context", trace_node("student.load_context", load_question_context, as_type="tool")
+    )
+    workflow.add_node(
+        "understand", trace_node("student.understand", understand_question, as_type="chain")
+    )
+    workflow.add_node(
+        "retrieve", trace_node("student.retrieve", retrieve_knowledge, as_type="retriever")
+    )
+    workflow.add_node(
+        "plan", trace_node("student.socratic_plan", socratic_plan, as_type="chain")
+    )
+    workflow.add_node(
+        "generate", trace_node("student.generate", generate_reply, as_type="chain")
+    )
+    workflow.add_node(
+        "check", trace_node("student.leak_check", leak_check, as_type="guardrail")
+    )
 
     workflow.set_entry_point("load_context")
     workflow.add_edge("load_context", "understand")

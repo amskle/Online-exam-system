@@ -5,11 +5,6 @@ from main import app
 
 client = TestClient(app)
 
-# 假 token（仅用于测试路由可达性，不验证实际 JWT）
-DUMMY_AUTH = {"Authorization": "Bearer dummy_token"}
-# 有效 token 需要运行时用 Spring Boot 签发
-VALID_AUTH = None  # 测试时通过 conftest 注入
-
 
 class TestHealthCheck:
     def test_health_returns_ok(self):
@@ -20,17 +15,9 @@ class TestHealthCheck:
 
 
 class TestTeacherRoutes:
-    def test_recommend_requires_auth(self):
+    def test_recommend_endpoint_has_been_removed(self):
         r = client.post("/ai/teacher/recommend", json={"subject_name": "Java"})
-        assert r.status_code == 401  # 缺少 Authorization header → 401（而非 422）
-
-    def test_recommend_rejects_invalid_token(self):
-        r = client.post(
-            "/ai/teacher/recommend",
-            json={"subject_name": "Java"},
-            headers=DUMMY_AUTH,
-        )
-        assert r.status_code == 401
+        assert r.status_code == 404
 
     def test_generate_requires_auth(self):
         r = client.post(

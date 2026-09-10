@@ -12,6 +12,7 @@ pyjwt==2.13.0
 
 # LangGraph（项目未直接使用 LangChain，避免引入无用依赖与漏洞面）
 langgraph==1.2.11
+langfuse==4.15.1
 
 # RAG — 文档解析
 pymupdf>=1.24.0

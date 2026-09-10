@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     embedding_api_base: str = "https://api.siliconflow.cn/v1"
     embedding_api_key: str = "your-embedding-api-key-here"
     embedding_model: str = "BAAI/bge-large-zh-v1.5"
+    embedding_use_llm_credentials: bool = False
 
     # ── ChromaDB 向量存储 ──
     vector_db_path: str = "./chroma_store"
@@ -57,6 +58,20 @@ class Settings(BaseSettings):
     quality_check_max_attempts: int = 2
     session_history_limit: int = 12  # 注入 prompt 的对话历史条数
     session_max_messages: int = 50  # 每个会话在库中保留的最大消息数
+
+    # ── Langfuse 可观测性（兼容自托管 v4）──
+    langfuse_enabled: bool = True
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "http://localhost:3000"
+    langfuse_environment: str = "development"
+    langfuse_release: str = "ai-tutor-0.2.0"
+    langfuse_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    langfuse_trace_tests: bool = False
+
+    # 评估运行时凭据仅从本地环境读取，不写入 Langfuse Dataset。
+    eval_student_token: str = ""
+    eval_teacher_token: str = ""
 
     # ── 评估 ──
     eval_sample_count: int = 20  # Ragas 评估采样数

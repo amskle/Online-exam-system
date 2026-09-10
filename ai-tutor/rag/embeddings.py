@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 from openai import AsyncOpenAI
 from config.settings import get_settings
+from utils.observability import observe_model_call
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.rag")
@@ -15,9 +16,19 @@ class EmbeddingService:
     """文本向量化服务，单条查询带 LRU 缓存"""
 
     def __init__(self):
+        api_key = (
+            settings.llm_api_key
+            if settings.embedding_use_llm_credentials
+            else settings.embedding_api_key
+        )
+        base_url = (
+            settings.llm_api_base
+            if settings.embedding_use_llm_credentials
+            else settings.embedding_api_base
+        )
         self.client = AsyncOpenAI(
-            api_key=settings.embedding_api_key,
-            base_url=settings.embedding_api_base,
+            api_key=api_key,
+            base_url=base_url,
             timeout=settings.llm_timeout,
         )
         self.model = settings.embedding_model
@@ -42,7 +53,27 @@ class EmbeddingService:
         batch_size = settings.embedding_batch_size
         for start in range(0, len(unique_texts), batch_size):
             batch = unique_texts[start:start + batch_size]
-            resp = await self.client.embeddings.create(model=self.model, input=batch)
+            with observe_model_call(
+                "embedding.batch",
+                as_type="embedding",
+                model=self.model,
+                input={"texts": batch, "batch_size": len(batch)},
+            ) as observation:
+                resp = await self.client.embeddings.create(model=self.model, input=batch)
+                if observation is not None:
+                    usage = getattr(resp, "usage", None)
+                    usage_details = {
+                        key: int(value)
+                        for key, value in {
+                            "input": getattr(usage, "prompt_tokens", None),
+                            "total": getattr(usage, "total_tokens", None),
+                        }.items()
+                        if value is not None
+                    }
+                    observation.update(
+                        output={"embedding_count": len(resp.data)},
+                        usage_details=usage_details or None,
+                    )
             if len(resp.data) != len(batch):
                 raise RuntimeError(
                     f"Embedding 返回数量不一致：请求 {len(batch)}，返回 {len(resp.data)}"

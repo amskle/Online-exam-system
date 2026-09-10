@@ -17,6 +17,7 @@ from config.settings import get_settings
 from rag.keywords import extract_keyword_terms
 from rag.retriever import retriever
 from utils.exam_bridge import exam_bridge
+from utils.observability import trace_node
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.agent.teacher")
@@ -385,11 +386,21 @@ async def save_to_db(state: TeacherState) -> TeacherState:
 def build_teacher_graph() -> StateGraph:
     workflow = StateGraph(TeacherState)
 
-    workflow.add_node("understand", understand_requirement)
-    workflow.add_node("retrieve", retrieve_references)
-    workflow.add_node("generate", generate_questions)
-    workflow.add_node("check", quality_check)
-    workflow.add_node("save", save_to_db)
+    workflow.add_node(
+        "understand", trace_node("teacher.understand", understand_requirement, as_type="chain")
+    )
+    workflow.add_node(
+        "retrieve", trace_node("teacher.retrieve", retrieve_references, as_type="retriever")
+    )
+    workflow.add_node(
+        "generate", trace_node("teacher.generate", generate_questions, as_type="chain")
+    )
+    workflow.add_node(
+        "check", trace_node("teacher.quality_check", quality_check, as_type="evaluator")
+    )
+    workflow.add_node(
+        "save", trace_node("teacher.save", save_to_db, as_type="tool")
+    )
 
     workflow.set_entry_point("understand")
     workflow.add_conditional_edges("understand", has_fatal, {"continue": "retrieve", "end": END})

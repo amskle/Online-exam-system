@@ -7,7 +7,6 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, UploadFil
 from models.schemas import (
     ApiResponse,
     TeacherGenerateRequest,
-    TeacherRecommendRequest,
     TeacherChatRequest,
     TeacherChatData,
     DocumentUploadData,
@@ -24,6 +23,7 @@ from rag.query_rewriter import query_rewrite_memory
 from rag.vector_store import vector_store
 from rag.retriever import retriever
 from rag.sanitizer import strip_answer_content
+from utils.observability import observe_agent_run, score_trace, update_observation
 import uuid
 import json
 import os
@@ -125,6 +125,7 @@ async def _generate_and_build_reply(
     user_message: str = "",
 ) -> tuple[str, dict]:
     """运行完整出题流水线并保存会话，返回 (回复文本, 响应数据)。"""
+    sid = session_store.new_session_id()
     state = {
         "subject_id": subject_id,
         "subject_name": subject_name,
@@ -143,14 +144,49 @@ async def _generate_and_build_reply(
         "fatal_error": "",
     }
 
-    try:
-        result: dict = await teacher_graph.ainvoke(state)
-    except Exception as e:
-        logger.exception("教师智能体执行异常")
-        raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
+    with observe_agent_run(
+        "teacher.generate",
+        user_id=user_id,
+        session_id=sid,
+        input={
+            "subject_id": subject_id,
+            "subject_name": subject_name,
+            "question_type": question_type,
+            "difficulty": difficulty,
+            "count": count,
+            "extra_requirement": extra_requirement,
+        },
+        tags=["ai-tutor", "langgraph", "teacher"],
+        metadata={"workflow": "question-generation"},
+    ) as observation:
+        try:
+            result: dict = await teacher_graph.ainvoke(state)
+        except Exception as e:
+            logger.exception("教师智能体执行异常")
+            raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
 
-    if result.get("fatal_error"):
-        raise HTTPException(status_code=500, detail=result["fatal_error"])
+        if result.get("fatal_error"):
+            update_observation(observation, output={"fatal_error": result["fatal_error"]})
+            score_trace(observation, "graph_completion", 0.0)
+            score_trace(observation, "quality_gate_passed", 0.0)
+            raise HTTPException(status_code=500, detail=result["fatal_error"])
+
+        saved_count = len(result.get("saved_ids", []))
+        update_observation(
+            observation,
+            output={
+                "questions": result.get("quality_checked", []),
+                "saved_ids": result.get("saved_ids", []),
+                "failed_questions": result.get("failed_questions", []),
+            },
+        )
+        score_trace(observation, "graph_completion", 1.0)
+        score_trace(observation, "quality_gate_passed", 1.0)
+        score_trace(
+            observation,
+            "database_save_rate",
+            saved_count / count if count else 0.0,
+        )
 
     questions = result.get("quality_checked", result.get("generated_questions", []))
     saved_ids = result.get("saved_ids", [])
@@ -159,7 +195,6 @@ async def _generate_and_build_reply(
     type_name = TYPE_NAMES.get(question_type, "题目")
     diff_name = DIFF_NAMES.get(difficulty, "中等")
     default_title = f"{subject_name} · {type_name} · {diff_name} x{count}"
-    sid = session_store.new_session_id()
     session_store.ensure_session(sid, user_id, 'teacher', session_title or default_title)
 
     default_user_msg = f"为「{subject_name}」生成{count}道{type_name}（难度：{diff_name}）"
@@ -254,47 +289,6 @@ async def list_subjects(auth=Depends(require_teacher_or_admin)):
     except Exception as e:
         logger.exception("获取科目列表失败")
         raise HTTPException(status_code=502, detail=f"无法获取科目列表: {e!s}")
-
-
-@router.post("/recommend", response_model=ApiResponse)
-async def recommend(
-    req: TeacherRecommendRequest,
-    auth=Depends(require_teacher_or_admin),
-):
-    """
-    主动推荐出题任务。
-    分析题库缺口 → 给出推荐建议。
-    """
-    token, claims = auth
-
-    try:
-        stats = await exam_bridge.get_question_stats(token, req.subject_name)
-    except Exception:
-        stats = {}
-
-    subject_hint = f"请专门针对 {req.subject_name} 科目" if req.subject_name else "请从全局题库出发"
-    type_names = {1: "单选题", 2: "多选题", 3: "判断题", 4: "主观题"}
-    stats_desc = ", ".join(f"{type_names.get(k, k)}:{v}" for k, v in stats.items() if isinstance(k, int) and v >= 0)
-    prompt = f"""你是题库管理助手。{subject_hint}，根据以下统计信息推荐最需要补充的题目类型。
-
-统计: {json.dumps(stats, ensure_ascii=False, default=str)[:800]}
-
-请给出简短的推荐建议（不超过100字），说明应该补充什么题型、什么难度的题目。"""
-
-    try:
-        suggestion_message = await chat_text(prompt, temperature=0.7, max_tokens=256)
-    except Exception as e:
-        logger.warning("教师推荐LLM调用失败: %s", e)
-        suggestion_message = f"建议补充{req.subject_name or '各科目'}的题目（LLM 暂时不可用: {e!s})"
-
-    return ApiResponse(
-        code=200,
-        message="推荐成功",
-        data={
-            "message": suggestion_message,
-            "suggestion": {"subject_name": req.subject_name or "全部", "recommended_count": 5},
-        },
-    )
 
 
 @router.post("/generate", response_model=ApiResponse)

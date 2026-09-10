@@ -161,32 +161,6 @@ class ExamBridge:
         records = data.get("records", []) if isinstance(data, dict) else []
         return records[0] if records else None
 
-    # ── 题库统计 ──────────────────────────────────
-
-    async def get_question_stats(self, token: str, subject_name: str | None = None) -> dict:
-        """获取题库统计（按题型聚合），使用 question/listPage（teacher 可访问，无需 admin）"""
-        stats: dict[str, int] = {}
-        subject_id = await self.get_subject_id(token, subject_name) if subject_name else None
-        if subject_name and subject_id is None:
-            return {**{f"type_{qtype}": 0 for qtype in range(1, 5)}, "_subject": subject_name}
-        for qtype in range(1, 5):
-            params: dict = {"pageNum": 1, "pageSize": 1, "type": qtype}
-            if subject_id is not None:
-                params["subjectId"] = subject_id
-            try:
-                r = await self._get_client().get(
-                    f"{self.base}/question/listPage",
-                    params=params,
-                    headers=self._headers(token),
-                )
-                body = self._checked_body(r, f"获取题型 {qtype} 统计")
-                data = body.get("data", {}) if isinstance(body, dict) else {}
-                stats[f"type_{qtype}"] = data.get("total", 0)
-            except Exception:
-                stats[f"type_{qtype}"] = -1
-        stats["_subject"] = subject_name or "全部"
-        return stats
-
     # ── 科目 ──────────────────────────────────
 
     async def get_subjects(self, token: str) -> list[dict]:

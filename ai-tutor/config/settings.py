@@ -45,11 +45,25 @@ class Settings(BaseSettings):
     min_chunk_tokens: int = 50
     hybrid_top_k: int = 20
     keyword_max_docs: int = 50000
+    keyword_query_timeout_ms: int = Field(default=250, ge=10, le=5000)
+    keyword_fallback_max_docs: int = Field(default=5000, ge=1)
+    keyword_fallback_timeout_ms: int = Field(default=100, ge=10, le=5000)
     max_upload_mb: int = 50
+    retrieval_embedding_timeout_seconds: float = Field(default=5.0, gt=0.0)
+    retrieval_semantic_timeout_ms: int = Field(default=1000, ge=10, le=10000)
+    retrieval_min_similarity: float = Field(default=0.60, ge=0.0, le=1.0)
+    retrieval_early_stop_similarity: float = Field(default=0.82, ge=0.0, le=1.0)
+    retrieval_early_stop_min_results: int = Field(default=3, ge=1)
+    retrieval_min_keyword_score: float = Field(default=0.25, ge=0.0, le=1.0)
+    retrieval_cache_ttl_seconds: float = Field(default=60.0, ge=0.0)
+    retrieval_cache_size: int = Field(default=256, ge=1)
     query_rewrite_enabled: bool = True
     query_rewrite_max_variants: int = 5
     query_rewrite_history_limit: int = 6
     query_rewrite_concurrency: int = 3
+    query_rewrite_timeout_seconds: float = Field(default=0.5, gt=0.0)
+    query_rewrite_cache_size: int = Field(default=256, ge=1)
+    query_complexity_length_threshold: int = Field(default=80, ge=10)
 
     # ── Agent ──
     llm_timeout: float = 100.0

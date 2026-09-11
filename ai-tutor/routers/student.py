@@ -211,7 +211,6 @@ async def ask_question(
             metadata={"guardrail_triggered": bool(result.get("contains_answer"))},
         )
         score_trace(observation, "graph_completion", 1.0)
-        score_trace(observation, "answer_leak_prevention", 1.0)
         score_trace(
             observation,
             "guardrail_triggered",
@@ -348,7 +347,6 @@ async def ask_question_stream(
                     metadata={"guardrail_triggered": bool(contains_answer)},
                 )
                 score_trace(observation, "graph_completion", 1.0)
-                score_trace(observation, "answer_leak_prevention", 1.0)
                 score_trace(
                     observation, "guardrail_triggered", float(bool(contains_answer))
                 )

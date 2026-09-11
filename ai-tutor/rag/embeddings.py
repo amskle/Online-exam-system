@@ -84,17 +84,32 @@ class EmbeddingService:
 
     async def embed_one(self, text: str) -> list[float]:
         """单条向量化（带缓存，检索查询多为重复知识点）"""
-        cached = self._query_cache.get(text)
-        if cached is not None:
-            self._query_cache.move_to_end(text)
-            return cached
-        results = await self.embed([text])
-        vec = results[0] if results else []
-        if vec:
-            self._query_cache[text] = vec
-            if len(self._query_cache) > _QUERY_CACHE_SIZE:
+        results = await self.embed_queries([text])
+        return results[0] if results else []
+
+    async def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        """批量向量化检索 Query，只为缓存未命中的文本发起一次批请求。"""
+        if not texts:
+            return []
+
+        missing = []
+        for text in dict.fromkeys(texts):
+            cached = self._query_cache.get(text)
+            if cached is not None:
+                self._query_cache.move_to_end(text)
+            else:
+                missing.append(text)
+
+        if missing:
+            vectors = await self.embed(missing)
+            for text, vector in zip(missing, vectors):
+                if vector:
+                    self._query_cache[text] = vector
+                    self._query_cache.move_to_end(text)
+            while len(self._query_cache) > _QUERY_CACHE_SIZE:
                 self._query_cache.popitem(last=False)
-        return vec
+
+        return [self._query_cache.get(text, []) for text in texts]
 
 
 # 模块级单例

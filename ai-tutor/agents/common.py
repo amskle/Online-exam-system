@@ -31,9 +31,15 @@ def get_llm() -> AsyncOpenAI:
     return _llm
 
 
-async def chat_text(prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> str:
+async def chat_text(
+    prompt: str, temperature: float = 0.7, max_tokens: int = 2048,
+    *, system_prompt: str | None = None,
+) -> str:
     """单次文本对话，返回 stripped 文本"""
-    messages = [{"role": "user", "content": prompt}]
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
     with observe_model_call(
         "llm.chat",
         as_type="generation",

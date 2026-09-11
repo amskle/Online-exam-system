@@ -22,7 +22,8 @@ from rag.embeddings import embedding_service
 from rag.query_rewriter import query_rewrite_memory
 from rag.vector_store import vector_store
 from rag.retriever import retriever
-from rag.sanitizer import strip_answer_content
+from rag.sanitizer import REDACTED_CHUNK_TEXT, strip_answer_content, strip_answer_chunks
+from rag.answering import answer_from_documents
 from utils.observability import observe_agent_run, score_trace, update_observation
 import uuid
 import json
@@ -414,35 +415,15 @@ async def chat(
             top_k=5,
             subject_filter=req.subject_name or None,
             query_history=query_history,
+            route_query=req.message,
         )
     except Exception as e:
         logger.warning("知识库检索失败: %s", e)
         docs = []
 
-    # ── 构建提示词 ──
-    if docs:
-        kb_context = "\n\n---\n".join(
-            f"【来源：{_format_source_label(d['metadata'])}】\n{d['document']}"
-            for d in docs
-        )
-        prompt = f"""你是一位学科助教，请根据以下知识库内容回答用户的问题。如果知识库中有相关内容，请准确引用；如果知识库内容不足以回答，请如实告知。
-
-知识库内容：
-{kb_context}
-
-用户问题：{req.message}
-
-请用中文回答，并尽量标注信息来源（文件名或题号）。"""
-    else:
-        prompt = f"""你是一位学科助教。用户上传过知识库文档，但目前知识库中没有检索到与以下问题相关的内容。
-
-用户问题：{req.message}
-
-请如实告知用户知识库中没有匹配的内容，并建议用户尝试上传相关文档或换个问题。"""
-
     # ── LLM 回答 ──
     try:
-        reply = await chat_text(prompt, temperature=0.5, max_tokens=1024)
+        reply = await answer_from_documents(req.message, docs)
     except Exception as e:
         logger.exception("教师对话 LLM 调用失败")
         raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e!s}")
@@ -528,12 +509,17 @@ async def upload_document(
         upload_id = uuid.uuid4().hex
         records: dict[str, tuple[str, str, dict]] = {}
         dropped_empty = 0
-        for chunk in chunks:
+        student_texts = strip_answer_chunks(
+            [chunk.content.strip() for chunk in chunks],
+            [chunk.metadata.get("section_path", "") for chunk in chunks],
+        )
+        for chunk, student_text in zip(chunks, student_texts):
             full_text = chunk.content.strip()
-            student_text = strip_answer_content(full_text)
             if not student_text:
                 dropped_empty += 1
-                continue
+                # Preserve the complete teacher corpus and the paired student ID.
+                # The retriever excludes this non-content placeholder.
+                student_text = REDACTED_CHUNK_TEXT
             normalized = " ".join(full_text.split())
             digest = hashlib.sha256(
                 f"{subject_name}\0{normalized}".encode("utf-8")
@@ -546,9 +532,9 @@ async def upload_document(
         if not records:
             return ApiResponse(code=400, message="清洗后没有可安全入库的内容", data=None)
 
-        duplicate_count = len(chunks) - dropped_empty - len(records)
+        duplicate_count = len(chunks) - len(records)
         if dropped_empty:
-            result.warnings.append(f"已跳过 {dropped_empty} 个仅含答案或解析的知识块")
+            result.warnings.append(f"学生侧已屏蔽 {dropped_empty} 个答案或解析块，教师原文已保留")
         if duplicate_count:
             result.warnings.append(f"已合并 {duplicate_count} 个重复知识块")
 

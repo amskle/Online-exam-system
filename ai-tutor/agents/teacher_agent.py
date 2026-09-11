@@ -152,6 +152,8 @@ async def retrieve_references(state: TeacherState) -> TeacherState:
             collection="teacher",
             top_k=state["count"] * 2,
             subject_filter=state["subject_name"],
+            rewrite=False,
+            keyword_mode="always",
         )
         if docs:
             requirement_terms = extract_keyword_terms(

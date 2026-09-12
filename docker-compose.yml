@@ -87,8 +87,14 @@ services:
     restart: unless-stopped
     environment:
       EXAM_BACKEND_URL: http://backend:8077
-      # LLM API（从 .env.docker 注入，不硬编码到镜像）
+      # LLM / Embedding 模型服务（URL 与模型名对齐本地 .env：阿里 DashScope）
+      LLM_API_BASE: ${LLM_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.7-flash-2026-07-15}
       LLM_API_KEY: ${LLM_API_KEY:?请在 .env.docker 中设置 LLM_API_KEY}
+      EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-https://api.siliconflow.cn/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v4}
+      EMBEDDING_USE_LLM_CREDENTIALS: ${EMBEDDING_USE_LLM_CREDENTIALS:-true}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-10}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:?请在 .env.docker 中设置 EMBEDDING_API_KEY}
       # JWT 密钥（必须与 backend 一致）
       JWT_SECRET: ${JWT_SECRET:?请在 .env.docker 中设置至少32位的随机 JWT_SECRET}

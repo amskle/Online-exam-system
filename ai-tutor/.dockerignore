@@ -17,6 +17,10 @@ chat_sessions.db
 vector_store.db
 upload_temp_*
 
+# Output (测试/导出产物)
+output/
+pytest-*
+
 # Environment
 .env
 

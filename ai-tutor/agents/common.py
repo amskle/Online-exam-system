@@ -7,6 +7,7 @@ import re
 from openai import AsyncOpenAI
 
 from config.settings import get_settings
+from utils.observability import observe_model_call
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.agents")
@@ -30,15 +31,42 @@ def get_llm() -> AsyncOpenAI:
     return _llm
 
 
-async def chat_text(prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> str:
+async def chat_text(
+    prompt: str, temperature: float = 0.7, max_tokens: int = 2048,
+    *, system_prompt: str | None = None,
+) -> str:
     """单次文本对话，返回 stripped 文本"""
-    resp = await get_llm().chat.completions.create(
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    with observe_model_call(
+        "llm.chat",
+        as_type="generation",
         model=settings.llm_model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    return (resp.choices[0].message.content or "").strip()
+        input={"messages": messages},
+        model_parameters={"temperature": temperature, "max_tokens": max_tokens},
+    ) as observation:
+        resp = await get_llm().chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        output = (resp.choices[0].message.content or "").strip()
+        if observation is not None:
+            usage = getattr(resp, "usage", None)
+            usage_details = {
+                key: int(value)
+                for key, value in {
+                    "input": getattr(usage, "prompt_tokens", None),
+                    "output": getattr(usage, "completion_tokens", None),
+                    "total": getattr(usage, "total_tokens", None),
+                }.items()
+                if value is not None
+            }
+            observation.update(output=output, usage_details=usage_details or None)
+        return output
 
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)

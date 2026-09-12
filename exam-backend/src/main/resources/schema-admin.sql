@@ -14,10 +14,6 @@ CREATE TABLE IF NOT EXISTS user (
   UNIQUE INDEX uk_user_account (account)
 );
 
--- 默认管理员（账号 admin，密码 123456）
-INSERT IGNORE INTO user (id, account, password, username, role, email, login_status, create_time)
-VALUES (1, 'admin', '$2b$10$P2rqMDKks/zYfWA.i4f15.3NHkX2tdgECbcFdDNS6VWFK38fiOPVq', '管理员', 3, 'admin@example.com', 0, NOW());
-
 CREATE TABLE IF NOT EXISTS subject (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(50) NOT NULL,
@@ -59,7 +55,9 @@ CREATE TABLE IF NOT EXISTS exam_paper_question (
   paper_id INT NOT NULL,
   question_id INT NOT NULL,
   paper_score INT NOT NULL,
-  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_paper_question_paper (paper_id),
+  INDEX idx_paper_question_question (question_id)
 );
 
 CREATE TABLE IF NOT EXISTS exam_record (
@@ -74,7 +72,11 @@ CREATE TABLE IF NOT EXISTS exam_record (
   attempt_count INT NOT NULL DEFAULT 1 COMMENT '当前记录累计考试次数',
   status TINYINT NOT NULL DEFAULT 0 COMMENT '0进行中 1已交卷',
   start_time DATETIME,
-  submit_time DATETIME
+  submit_time DATETIME,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_exam_record_user_status (user_id, status),
+  INDEX idx_exam_record_paper (paper_id),
+  INDEX idx_exam_record_create_time (create_time)
 );
 
 CREATE TABLE IF NOT EXISTS exam_record_answer (
@@ -89,7 +91,9 @@ CREATE TABLE IF NOT EXISTS exam_record_answer (
   full_score INT NOT NULL,
   score INT NOT NULL DEFAULT 0,
   judgement VARCHAR(20),
-  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_exam_answer_record (record_id),
+  INDEX idx_exam_answer_question (question_id)
 );
 
 CREATE TABLE IF NOT EXISTS wrong_question (
@@ -107,5 +111,7 @@ CREATE TABLE IF NOT EXISTS wrong_question (
   wrong_count INT NOT NULL DEFAULT 1,
   mastered TINYINT(1) NOT NULL DEFAULT 0,
   last_wrong_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_wrong_question_user (user_id, mastered, last_wrong_time),
+  INDEX idx_wrong_question_question (question_id)
 );

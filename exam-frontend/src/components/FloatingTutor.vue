@@ -32,15 +32,12 @@
           <!-- 消息列表 -->
           <div class="dialog-body" ref="bodyRef">
             <!-- 推荐卡片 -->
-            <div v-if="showRecommend" class="recommend-card">
+            <div v-if="showRecommend && agentMode === 'student'" class="recommend-card">
               <div class="recommend-header">
-                <span>💡 {{ agentMode === 'teacher' ? '推荐出题任务' : '复习建议' }}</span>
+                <span>💡 复习建议</span>
                 <el-button text size="small" type="primary" @click="showRecommend = false">关闭</el-button>
               </div>
               <p class="recommend-text">{{ recommendMessage }}</p>
-              <div v-if="agentMode === 'teacher' && recommendSuggestion" class="recommend-action">
-                <el-button size="small" type="primary" @click="quickGenerate">🚀 快速生成</el-button>
-              </div>
             </div>
 
             <!-- 对话消息 -->
@@ -83,7 +80,7 @@
                 <el-button size="small" :icon="Upload" @click="openFilePicker" :loading="uploading">
                   {{ uploading ? '上传中…' : '📄 上传知识库' }}
                 </el-button>
-                <el-button size="small" type="danger" @click="clearKnowledge" :disabled="uploading">
+                <el-button v-if="isAdmin" size="small" type="danger" @click="clearKnowledge" :disabled="uploading">
                   🗑️ 清空知识库
                 </el-button>
                 <el-button size="small" type="warning" @click="doGenerate" :loading="loading" :disabled="!genSubjectId">
@@ -157,6 +154,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Promotion, Upload } from '@element-plus/icons-vue'
 import { teacherApi, studentApi } from '@/api/tutor-api'
 import type { GeneratedQuestion, SubjectItem, SessionItem, SessionDetail } from '@/api/tutor-api'
+import { getRole, RoleEnum } from '@/utils/localStorage'
 
 const route = useRoute()
 
@@ -168,6 +166,7 @@ const agentMode = computed<'teacher' | 'student' | null>(() => {
 })
 
 const visible = computed(() => agentMode.value !== null)
+const isAdmin = computed(() => getRole() === RoleEnum.ADMIN)
 
 // ── 对话框状态 ──
 const dialogOpen = ref(false)
@@ -198,7 +197,6 @@ const bodyRef = ref<HTMLElement>()
 // ── 推荐 ──
 const showRecommend = ref(false)
 const recommendMessage = ref('')
-const recommendSuggestion = ref<any>(null)
 
 // ── 教师快捷出题 ──
 const subjects = ref<SubjectItem[]>([])
@@ -274,8 +272,6 @@ async function onFileSelected(e: Event) {
         ? '题库'
         : '零散笔记'
     ElMessage.success(`「${file.name}」识别为${typeLabel}，共入库 ${result?.chunk_count ?? '?'} 个知识块`)
-    // 刷新推荐以体现新知识
-    await fetchRecommend()
   } catch (err: any) {
     ElMessage.error(err?.message || `「${file.name}」上传失败`)
   } finally {
@@ -398,23 +394,13 @@ async function confirmDeleteSession(s: SessionItem) {
 }
 
 async function fetchRecommend() {
-  if (agentMode.value === 'teacher') {
-    try {
-      const data = await teacherApi.recommend(genSubjectName.value || undefined)
-      recommendMessage.value = data.message
-      recommendSuggestion.value = data.suggestion
-      showRecommend.value = true
-    } catch {
-      // 静默失败
-    }
-  } else {
-    try {
-      const data = await studentApi.recommend()
-      recommendMessage.value = data.message
-      showRecommend.value = true
-    } catch {
-      // 静默失败
-    }
+  if (agentMode.value !== 'student') return
+  try {
+    const data = await studentApi.recommend()
+    recommendMessage.value = data.message
+    showRecommend.value = true
+  } catch {
+    // 静默失败
   }
 }
 
@@ -590,12 +576,6 @@ async function doGenerate() {
   }
 }
 
-function quickGenerate() {
-  if (!genSubjectId.value) return
-  showRecommend.value = false
-  doGenerate()
-}
-
 // ── 加载科目列表 ──
 async function loadSubjects() {
   try {
@@ -614,9 +594,10 @@ async function loadSubjects() {
 watch(agentMode, async (mode) => {
   if (mode) {
     sessionId.value = ''
+    showRecommend.value = false
     if (mode === 'teacher') await loadSubjects()
     await checkAvailability()
-    await fetchRecommend()
+    if (mode === 'student') await fetchRecommend()
   } else {
     dialogOpen.value = false
   }
@@ -689,7 +670,7 @@ onMounted(() => {
   if (agentMode.value) {
     if (agentMode.value === 'teacher') loadSubjects()
     checkAvailability()
-    fetchRecommend()
+    if (agentMode.value === 'student') fetchRecommend()
   }
 })
 </script>

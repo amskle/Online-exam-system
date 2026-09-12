@@ -8,8 +8,6 @@ WHERE NOT EXISTS (SELECT 1 FROM subject WHERE name = '408计算机学科专业�
 
 SET @subject_id := (SELECT id FROM subject WHERE name = '408计算机学科专业基础' LIMIT 1);
 
-DELETE FROM question WHERE subject_name = '408计算机学科专业基础' AND content LIKE '【%年408真题第%题】%';
-
 INSERT INTO question (subject_id, subject_name, type, difficulty, content, options, answer, analysis, score, create_time)
 VALUES
 (@subject_id, '408计算机学科专业基础', 1, 2, '【2009年408真题第1题】

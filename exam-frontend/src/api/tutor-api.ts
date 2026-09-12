@@ -38,14 +38,6 @@ export interface SubjectItem {
   name: string
 }
 
-export interface TeacherRecommendData {
-  message: string
-  suggestion: {
-    subject_name: string
-    recommended_count: number
-  }
-}
-
 export interface TeacherGenerateParams {
   subjectId: number
   subjectName: string
@@ -120,13 +112,6 @@ export const teacherApi = {
   async subjects() {
     const r: any = await aiClient.get('/teacher/subjects')
     return (r.data || r) as SubjectItem[]
-  },
-
-  async recommend(subjectName?: string) {
-    const r: any = await aiClient.post('/teacher/recommend', {
-      subject_name: subjectName || null,
-    })
-    return r.data as TeacherRecommendData
   },
 
   async generate(params: TeacherGenerateParams) {

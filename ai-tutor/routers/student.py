@@ -17,6 +17,7 @@ from utils.jwt_util import verify_token, get_user_id, ROLE_STUDENT
 from utils.exam_bridge import exam_bridge
 from utils.session_store import session_store
 from config.settings import get_settings
+from utils.observability import observe_agent_run, score_trace, update_observation
 
 router = APIRouter()
 settings = get_settings()
@@ -48,9 +49,17 @@ async def require_student(
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
+    try:
+        current_user = await exam_bridge.validate_auth(token)
+    except Exception:
+        logger.exception("后端认证服务不可用")
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="登录状态已失效")
     role = claims.get("role")
     if role != ROLE_STUDENT:
         raise HTTPException(status_code=403, detail="仅学生可访问")
+    claims["sub"] = str(current_user.get("id"))
     return token, claims
 
 
@@ -172,14 +181,41 @@ async def ask_question(
         "fatal_error": "",
     }
 
-    try:
-        result: dict = await student_graph.ainvoke(state)
-    except Exception as e:
-        logger.exception("学生智能体执行异常")
-        raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
+    with observe_agent_run(
+        "student.ask",
+        user_id=user_id,
+        session_id=sid,
+        input=req.model_dump(),
+        tags=["ai-tutor", "langgraph", "student"],
+        metadata={"endpoint": "/ai/student/ask", "stream": False},
+    ) as observation:
+        try:
+            result: dict = await student_graph.ainvoke(state)
+        except Exception as e:
+            logger.exception("学生智能体执行异常")
+            raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
 
-    if result.get("fatal_error"):
-        return ApiResponse(code=500, message=result["fatal_error"], data=None)
+        if result.get("fatal_error"):
+            update_observation(observation, output={"fatal_error": result["fatal_error"]})
+            score_trace(observation, "graph_completion", 0.0)
+            return ApiResponse(code=500, message=result["fatal_error"], data=None)
+
+        public_output = {
+            "reply": result["final_reply"],
+            "hints": result.get("hints", []),
+            "related_concepts": result.get("related_concepts", []),
+        }
+        update_observation(
+            observation,
+            output=public_output,
+            metadata={"guardrail_triggered": bool(result.get("contains_answer"))},
+        )
+        score_trace(observation, "graph_completion", 1.0)
+        score_trace(
+            observation,
+            "guardrail_triggered",
+            float(bool(result.get("contains_answer"))),
+        )
 
     # 持久化本轮对话
     session_store.append(sid, user_id, "user", req.message)
@@ -204,7 +240,7 @@ async def ask_question_stream(
 ):
     """
     学生答疑 — SSE 流式版。
-    使用 LangGraph astream(updates) 逐节点推送进度和 LLM token，提供实时打字体验。
+    使用 LangGraph astream(updates) 推送节点进度；答案安全检查通过后再分段推送正文。
     """
     token, claims = auth
     user_id = _extract_user_id(claims)
@@ -251,63 +287,78 @@ async def ask_question_stream(
             "generate": "正在生成回复…",
             "check": "正在检查答案安全性…",
         }
-        draft_reply = ""
         final_reply = ""
 
-        try:
-            async for chunk in student_graph.astream(state, stream_mode="updates"):
-                for node_name, node_output in chunk.items():
-                    # 推送节点状态
-                    status_text = status_map.get(node_name)
-                    if status_text:
-                        yield f"data: {json.dumps({'type': 'status', 'text': status_text})}\n\n"
+        with observe_agent_run(
+            "student.ask.stream",
+            user_id=user_id,
+            session_id=sid,
+            input=req.model_dump(),
+            tags=["ai-tutor", "langgraph", "student", "stream"],
+            metadata={"endpoint": "/ai/student/ask/stream", "stream": True},
+        ) as observation:
+            try:
+                contains_answer = False
+                hints = []
+                concepts = []
+                async for chunk in student_graph.astream(state, stream_mode="updates"):
+                    for node_name, node_output in chunk.items():
+                        # 推送节点状态
+                        status_text = status_map.get(node_name)
+                        if status_text:
+                            yield f"data: {json.dumps({'type': 'status', 'text': status_text})}\n\n"
 
-                    # generate 节点完成后，模拟逐字流式输出
-                    if node_name == "generate":
-                        draft_reply = node_output.get("draft_reply", "")
-                        if draft_reply:
-                            # 按字符分组发送，模拟打字效果（中文每字符、英文每词）
+                        # 只有检查节点产出的 final_reply 可以发送给客户端，避免草稿先泄露后撤回。
+                        if node_name == "check":
+                            final_reply = node_output.get("final_reply", "")
+                            hints = node_output.get("hints", [])
+                            concepts = node_output.get("related_concepts", [])
+                            contains_answer = node_output.get("contains_answer", False)
+
                             buffer = ""
-                            for ch in draft_reply:
+                            for ch in final_reply:
                                 buffer += ch
-                                # 中文/标点逐字发送，英文单词按空格发送
                                 if ch in "，。！？；：、\n" or (ch == " " and len(buffer) > 1):
                                     yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
-                                    await asyncio.sleep(0.01)  # 微小延迟，给前端渲染时间
+                                    await asyncio.sleep(0.01)
                                     buffer = ""
                             if buffer:
                                 yield f"data: {json.dumps({'type': 'token', 'text': buffer})}\n\n"
 
-                    # check 节点完成后，获取最终回复
-                    if node_name == "check":
-                        final_reply = node_output.get("final_reply", "")
-                        hints = node_output.get("hints", [])
-                        concepts = node_output.get("related_concepts", [])
-                        contains_answer = node_output.get("contains_answer", False)
+                            yield f"data: {json.dumps({
+                                'type': 'final',
+                                'reply': final_reply,
+                                'hints': hints,
+                                'related_concepts': concepts,
+                                'session_id': sid,
+                                'contains_answer': contains_answer,
+                            })}\n\n"
 
-                        # 如果泄露检测重写了回复，推送替换事件
-                        if final_reply and final_reply != draft_reply:
-                            yield f"data: {json.dumps({'type': 'rewrite', 'text': final_reply})}\n\n"
+                # 持久化本轮对话
+                session_store.append(sid, user_id, "user", req.message)
+                session_store.append(sid, user_id, "assistant", final_reply)
+                update_observation(
+                    observation,
+                    output={
+                        "reply": final_reply,
+                        "hints": hints,
+                        "related_concepts": concepts,
+                    },
+                    metadata={"guardrail_triggered": bool(contains_answer)},
+                )
+                score_trace(observation, "graph_completion", 1.0)
+                score_trace(
+                    observation, "guardrail_triggered", float(bool(contains_answer))
+                )
 
-                        yield f"data: {json.dumps({
-                            'type': 'final',
-                            'reply': final_reply,
-                            'hints': hints,
-                            'related_concepts': concepts,
-                            'session_id': sid,
-                            'contains_answer': contains_answer,
-                        })}\n\n"
+                yield "data: [DONE]\n\n"
 
-            # 持久化本轮对话
-            session_store.append(sid, user_id, "user", req.message)
-            session_store.append(sid, user_id, "assistant", final_reply)
-
-            yield "data: [DONE]\n\n"
-
-        except Exception as e:
-            logger.exception("流式答疑执行异常")
-            yield f"data: {json.dumps({'type': 'error', 'message': f'智能体执行失败: {e!s}'})}\n\n"
-            yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.exception("流式答疑执行异常")
+                update_observation(observation, output={"error": str(e)})
+                score_trace(observation, "graph_completion", 0.0)
+                yield f"data: {json.dumps({'type': 'error', 'message': f'智能体执行失败: {e!s}'})}\n\n"
+                yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),

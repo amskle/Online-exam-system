@@ -13,8 +13,8 @@ logger = logging.getLogger("ai-tutor.sessions")
 class SessionStore:
     """按 (session_id, user_id) 隔离的对话历史存储"""
 
-    def __init__(self):
-        self.db_path = settings.session_db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or settings.session_db_path
         self._init_db()
 
     def _init_db(self):
@@ -29,19 +29,21 @@ class SessionStore:
                     created_at REAL NOT NULL
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_session ON chat_messages (session_id, user_id, id)"
-            )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
                     user_id INTEGER NOT NULL,
                     agent_mode TEXT NOT NULL DEFAULT 'student',
                     title TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (session_id, user_id)
                 )
             """)
+            self._migrate_sessions_primary_key(conn)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session ON chat_messages (session_id, user_id, id)"
+            )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id, updated_at DESC)"
             )
@@ -49,20 +51,53 @@ class SessionStore:
             # 自动修复孤立消息（有消息无 session 的数据）
             self._repair_orphaned_messages(conn)
 
+    @staticmethod
+    def _migrate_sessions_primary_key(conn: sqlite3.Connection):
+        """把旧的单 session_id 主键无损迁移为 (session_id, user_id) 联合主键。"""
+        info = conn.execute("PRAGMA table_info(sessions)").fetchall()
+        primary_key = [
+            row[1] for row in sorted(info, key=lambda row: row[5]) if row[5]
+        ]
+        if primary_key == ["session_id", "user_id"]:
+            return
+        conn.execute("DROP TABLE IF EXISTS sessions_v2")
+        conn.execute("""
+            CREATE TABLE sessions_v2 (
+                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                agent_mode TEXT NOT NULL DEFAULT 'student',
+                title TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (session_id, user_id)
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO sessions_v2
+                (session_id, user_id, agent_mode, title, created_at, updated_at)
+            SELECT session_id, user_id, agent_mode, title, created_at, updated_at
+            FROM sessions
+        """)
+        conn.execute("DROP TABLE sessions")
+        conn.execute("ALTER TABLE sessions_v2 RENAME TO sessions")
+        logger.info("sessions 已迁移为 (session_id, user_id) 联合主键")
+
     def _repair_orphaned_messages(self, conn: sqlite3.Connection):
         """为有消息但缺少 session 元数据的会话自动补建 session 记录"""
         orphaned = conn.execute("""
             SELECT DISTINCT m.session_id, m.user_id, MIN(m.created_at) AS first_ts, MAX(m.created_at) AS last_ts
             FROM chat_messages m
-            LEFT JOIN sessions s ON m.session_id = s.session_id
+            LEFT JOIN sessions s
+              ON m.session_id = s.session_id AND m.user_id = s.user_id
             WHERE s.session_id IS NULL
-            GROUP BY m.session_id
+            GROUP BY m.session_id, m.user_id
         """).fetchall()
         for sid, uid, first_ts, last_ts in orphaned:
             # 取第一条 user 消息的前 50 字作为标题
             title_row = conn.execute(
-                "SELECT content FROM chat_messages WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
-                (sid,),
+                "SELECT content FROM chat_messages WHERE session_id = ? AND user_id = ? "
+                "AND role = 'user' ORDER BY id ASC LIMIT 1",
+                (sid, uid),
             ).fetchone()
             title = (title_row[0][:50] if title_row and title_row[0] else "")
             # 推断 agent_mode：从上下文取默认值
@@ -84,7 +119,8 @@ class SessionStore:
         with sqlite3.connect(self.db_path) as conn:
             # 安全网：如果 session 不存在则自动创建（防止孤立消息）
             existing = conn.execute(
-                "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
+                "SELECT 1 FROM sessions WHERE session_id = ? AND user_id = ?",
+                (session_id, user_id),
             ).fetchone()
             if not existing:
                 title = content[:50] if role == "user" else ""
@@ -114,8 +150,8 @@ class SessionStore:
             )
             # 更新 session 时间戳
             conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
-                (now, session_id),
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+                (now, session_id, user_id),
             )
             conn.commit()
 
@@ -143,8 +179,8 @@ class SessionStore:
                 (session_id, user_id),
             )
             conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
-                (time.time(), session_id),
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+                (time.time(), session_id, user_id),
             )
             conn.commit()
 
@@ -160,24 +196,25 @@ class SessionStore:
             # 如果传入了标题且已有标题为空，则更新标题
             if title:
                 conn.execute(
-                    "UPDATE sessions SET title = ? WHERE session_id = ? AND (title = '' OR title IS NULL)",
-                    (title, session_id),
+                    "UPDATE sessions SET title = ? WHERE session_id = ? AND user_id = ? "
+                    "AND (title = '' OR title IS NULL)",
+                    (title, session_id, user_id),
                 )
             conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
-                (now, session_id),
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+                (now, session_id, user_id),
             )
             conn.commit()
 
-    def touch_session(self, session_id: str):
+    def touch_session(self, session_id: str, user_id: int):
         """
         更新 session 的 updated_at 时间戳。
         如果 session 不存在（数据修复/竞态），则跳过 — 调用方应在 append 之前调用 ensure_session。
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
-                (time.time(), session_id),
+                "UPDATE sessions SET updated_at = ? WHERE session_id = ? AND user_id = ?",
+                (time.time(), session_id, user_id),
             )
             conn.commit()
 
@@ -206,9 +243,9 @@ class SessionStore:
                 # 取最后一条 assistant 消息作为预览
                 preview_row = conn.execute(
                     "SELECT content FROM chat_messages "
-                    "WHERE session_id = ? AND role = 'assistant' "
+                    "WHERE session_id = ? AND user_id = ? AND role = 'assistant' "
                     "ORDER BY id DESC LIMIT 1",
-                    (sid,),
+                    (sid, user_id),
                 ).fetchone()
                 preview = ""
                 if preview_row and preview_row[0]:

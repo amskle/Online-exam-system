@@ -3,8 +3,22 @@ name = "ai-tutor"
 version = "0.1.0"
 description = "智能学习伙伴微服务 — 基于 RAG + LangGraph 的教师出题 & 学生答疑智能体"
 requires-python = ">=3.12"
-dependencies = []
+dynamic = ["dependencies"]
 
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["agents*", "config*", "eval*", "models*", "rag*", "routers*", "services*", "utils*"]
+exclude = ["tests*", "chroma_store*"]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+markers = ["integration: requires live backend and external model services"]

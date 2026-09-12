@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -27,7 +28,8 @@ public class BaseUser {
     @TableId(type = IdType.AUTO)
     private Integer id; // 主键id
     private String account; // 账号
-    private String password; // 密码
+    @JsonIgnore
+    private String password; // 密码（禁止序列化到接口响应）
     private String avatar; // 头像
     private String username; // 用户名
     private Integer gender; // 性别(1.男，2.女)

@@ -1,6 +1,6 @@
--- 批量创建压测学生账号（密码统一为 123456，复用默认管理员 BCrypt 哈希）
+-- 补齐 1000 个压测学生账号（密码统一为 123456，复用默认管理员 BCrypt 哈希）
 -- 用法: mysql -u root -p exam < seed_loadtest_accounts.sql
--- 说明: email_verify_time 设为当前时间，登录时可直接通过，无需邮箱验证码
+-- 已有账号保持不变，可重复执行；登录压测前还需运行 seed_jmeter_accounts.py 预置可信设备。
 
 INSERT INTO user (account, password, username, role, email, email_verify_time, login_status, create_time)
 SELECT
@@ -24,7 +24,11 @@ FROM (
         UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7
         UNION ALL SELECT 8 UNION ALL SELECT 9) u
 ) nums
-WHERE nums.n <= 500;
+WHERE nums.n <= 1000
+  AND NOT EXISTS (
+    SELECT 1 FROM user existing
+    WHERE existing.account = CONCAT('loadtest_', LPAD(nums.n, 4, '0'))
+  );
 
 -- 查看生成的账号（用于确认）
 SELECT id, account, role, login_status, email_verify_time

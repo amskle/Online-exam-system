@@ -92,12 +92,19 @@ class ExamRecordServiceImplTest {
         updated1.setId(101);
         updated1.setScore(8);
         updated1.setRecordId(1);
+        updated1.setType(4);
+        updated1.setFullScore(10);
 
         ExamRecordAnswer updated2 = new ExamRecordAnswer();
         updated2.setId(102);
         updated2.setScore(15);
         updated2.setRecordId(1);
+        updated2.setType(4);
+        updated2.setFullScore(20);
 
+        ExamRecord existingRecord = new ExamRecord();
+        existingRecord.setId(1);
+        when(recordMapper.selectById(1)).thenReturn(existingRecord);
         when(answerService.updateById(any())).thenReturn(true);
         when(answerService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(updated1, updated2));
 
@@ -131,7 +138,12 @@ class ExamRecordServiceImplTest {
         updated.setId(101);
         updated.setScore(0);
         updated.setRecordId(1);
+        updated.setType(4);
+        updated.setFullScore(10);
 
+        ExamRecord existingRecord = new ExamRecord();
+        existingRecord.setId(1);
+        when(recordMapper.selectById(1)).thenReturn(existingRecord);
         when(answerService.updateById(any())).thenReturn(true);
         when(answerService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(updated));
 

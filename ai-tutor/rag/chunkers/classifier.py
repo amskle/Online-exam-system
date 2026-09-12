@@ -13,7 +13,10 @@ _HEADING_LINE_RE = re.compile(
     r"|[一二三四五六七八九十]+、"
     r"|(?:\d+\.)+\d*)"
 )
-_ANSWER_KEYWORDS = ("答案", "正确答案", "answer", "Answer")
+_ANSWER_LABEL = re.compile(
+    r"(?:^|\n)\s*(?:[【\[(]\s*)?(?:(?:正确|参考|标准|期望)?答案|answer(?: key)?)"
+    r"(?:\s*[】\])])?\s*[:：]", re.I,
+)
 
 
 def _heading_lines(text: str) -> list[str]:
@@ -27,7 +30,8 @@ def classify(blocks: list[ParsedBlock], text: str) -> str:
         return "unknown"
 
     question_hits = len(QUESTION_NUMBER_RE.findall(text))
-    has_answer = any(k in text for k in _ANSWER_KEYWORDS)
+    # A prose mention of “答案” is not evidence of an answer key.
+    has_answer = bool(_ANSWER_LABEL.search(text))
     if question_hits >= 2 and has_answer:
         return "question_bank"
 

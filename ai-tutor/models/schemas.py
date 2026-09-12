@@ -34,11 +34,6 @@ class TeacherGenerateRequest(BaseModel):
     extra_requirement: Optional[str] = Field(default=None, description="额外要求")
 
 
-class TeacherRecommendRequest(BaseModel):
-    """教师推荐任务请求"""
-    subject_name: Optional[str] = Field(default=None, description="指定科目；不传则根据题库缺口推荐")
-
-
 class GeneratedQuestion(BaseModel):
     """生成的单道题目"""
     content: str
@@ -54,12 +49,6 @@ class TeacherGenerateData(BaseModel):
     saved_ids: list[int] = Field(default_factory=list)
     failed_questions: list[dict] = Field(default_factory=list, description="入库失败的题目")
     warnings: list[str] = Field(default_factory=list, description="生成过程中的警告")
-
-
-class TeacherRecommendData(BaseModel):
-    """推荐任务响应数据"""
-    message: str
-    suggestion: dict
 
 
 class TeacherChatRequest(BaseModel):

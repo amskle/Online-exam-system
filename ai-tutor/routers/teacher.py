@@ -1,12 +1,12 @@
 """教师智能体 API 路由 — 出题、推荐、文档上传"""
 import logging
+import hashlib
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Header, UploadFile, File, Form
 
 from models.schemas import (
     ApiResponse,
     TeacherGenerateRequest,
-    TeacherRecommendRequest,
     TeacherChatRequest,
     TeacherChatData,
     DocumentUploadData,
@@ -22,6 +22,9 @@ from rag.embeddings import embedding_service
 from rag.query_rewriter import query_rewrite_memory
 from rag.vector_store import vector_store
 from rag.retriever import retriever
+from rag.sanitizer import REDACTED_CHUNK_TEXT, strip_answer_content, strip_answer_chunks
+from rag.answering import answer_from_documents
+from utils.observability import observe_agent_run, score_trace, update_observation
 import uuid
 import json
 import os
@@ -123,6 +126,7 @@ async def _generate_and_build_reply(
     user_message: str = "",
 ) -> tuple[str, dict]:
     """运行完整出题流水线并保存会话，返回 (回复文本, 响应数据)。"""
+    sid = session_store.new_session_id()
     state = {
         "subject_id": subject_id,
         "subject_name": subject_name,
@@ -141,14 +145,49 @@ async def _generate_and_build_reply(
         "fatal_error": "",
     }
 
-    try:
-        result: dict = await teacher_graph.ainvoke(state)
-    except Exception as e:
-        logger.exception("教师智能体执行异常")
-        raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
+    with observe_agent_run(
+        "teacher.generate",
+        user_id=user_id,
+        session_id=sid,
+        input={
+            "subject_id": subject_id,
+            "subject_name": subject_name,
+            "question_type": question_type,
+            "difficulty": difficulty,
+            "count": count,
+            "extra_requirement": extra_requirement,
+        },
+        tags=["ai-tutor", "langgraph", "teacher"],
+        metadata={"workflow": "question-generation"},
+    ) as observation:
+        try:
+            result: dict = await teacher_graph.ainvoke(state)
+        except Exception as e:
+            logger.exception("教师智能体执行异常")
+            raise HTTPException(status_code=500, detail=f"智能体执行失败: {e!s}")
 
-    if result.get("fatal_error"):
-        raise HTTPException(status_code=500, detail=result["fatal_error"])
+        if result.get("fatal_error"):
+            update_observation(observation, output={"fatal_error": result["fatal_error"]})
+            score_trace(observation, "graph_completion", 0.0)
+            score_trace(observation, "quality_gate_passed", 0.0)
+            raise HTTPException(status_code=500, detail=result["fatal_error"])
+
+        saved_count = len(result.get("saved_ids", []))
+        update_observation(
+            observation,
+            output={
+                "questions": result.get("quality_checked", []),
+                "saved_ids": result.get("saved_ids", []),
+                "failed_questions": result.get("failed_questions", []),
+            },
+        )
+        score_trace(observation, "graph_completion", 1.0)
+        score_trace(observation, "quality_gate_passed", 1.0)
+        score_trace(
+            observation,
+            "database_save_rate",
+            saved_count / count if count else 0.0,
+        )
 
     questions = result.get("quality_checked", result.get("generated_questions", []))
     saved_ids = result.get("saved_ids", [])
@@ -157,7 +196,6 @@ async def _generate_and_build_reply(
     type_name = TYPE_NAMES.get(question_type, "题目")
     diff_name = DIFF_NAMES.get(difficulty, "中等")
     default_title = f"{subject_name} · {type_name} · {diff_name} x{count}"
-    sid = session_store.new_session_id()
     session_store.ensure_session(sid, user_id, 'teacher', session_title or default_title)
 
     default_user_msg = f"为「{subject_name}」生成{count}道{type_name}（难度：{diff_name}）"
@@ -217,9 +255,25 @@ async def require_teacher_or_admin(
     claims = verify_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
+    try:
+        current_user = await exam_bridge.validate_auth(token)
+    except Exception:
+        logger.exception("后端认证服务不可用")
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="登录状态已失效")
     role = claims.get("role")
     if role not in (ROLE_TEACHER, ROLE_ADMIN):
         raise HTTPException(status_code=403, detail="仅教师和管理员可访问")
+    claims["sub"] = str(current_user.get("id"))
+    return token, claims
+
+
+async def require_admin(auth=Depends(require_teacher_or_admin)):
+    """全局破坏性操作仅允许管理员执行。"""
+    token, claims = auth
+    if claims.get("role") != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
     return token, claims
 
 
@@ -236,47 +290,6 @@ async def list_subjects(auth=Depends(require_teacher_or_admin)):
     except Exception as e:
         logger.exception("获取科目列表失败")
         raise HTTPException(status_code=502, detail=f"无法获取科目列表: {e!s}")
-
-
-@router.post("/recommend", response_model=ApiResponse)
-async def recommend(
-    req: TeacherRecommendRequest,
-    auth=Depends(require_teacher_or_admin),
-):
-    """
-    主动推荐出题任务。
-    分析题库缺口 → 给出推荐建议。
-    """
-    token, claims = auth
-
-    try:
-        stats = await exam_bridge.get_question_stats(token, req.subject_name)
-    except Exception:
-        stats = {}
-
-    subject_hint = f"请专门针对 {req.subject_name} 科目" if req.subject_name else "请从全局题库出发"
-    type_names = {1: "单选题", 2: "多选题", 3: "判断题", 4: "主观题"}
-    stats_desc = ", ".join(f"{type_names.get(k, k)}:{v}" for k, v in stats.items() if isinstance(k, int) and v >= 0)
-    prompt = f"""你是题库管理助手。{subject_hint}，根据以下统计信息推荐最需要补充的题目类型。
-
-统计: {json.dumps(stats, ensure_ascii=False, default=str)[:800]}
-
-请给出简短的推荐建议（不超过100字），说明应该补充什么题型、什么难度的题目。"""
-
-    try:
-        suggestion_message = await chat_text(prompt, temperature=0.7, max_tokens=256)
-    except Exception as e:
-        logger.warning("教师推荐LLM调用失败: %s", e)
-        suggestion_message = f"建议补充{req.subject_name or '各科目'}的题目（LLM 暂时不可用: {e!s})"
-
-    return ApiResponse(
-        code=200,
-        message="推荐成功",
-        data={
-            "message": suggestion_message,
-            "suggestion": {"subject_name": req.subject_name or "全部", "recommended_count": 5},
-        },
-    )
 
 
 @router.post("/generate", response_model=ApiResponse)
@@ -402,35 +415,15 @@ async def chat(
             top_k=5,
             subject_filter=req.subject_name or None,
             query_history=query_history,
+            route_query=req.message,
         )
     except Exception as e:
         logger.warning("知识库检索失败: %s", e)
         docs = []
 
-    # ── 构建提示词 ──
-    if docs:
-        kb_context = "\n\n---\n".join(
-            f"【来源：{_format_source_label(d['metadata'])}】\n{d['document']}"
-            for d in docs
-        )
-        prompt = f"""你是一位学科助教，请根据以下知识库内容回答用户的问题。如果知识库中有相关内容，请准确引用；如果知识库内容不足以回答，请如实告知。
-
-知识库内容：
-{kb_context}
-
-用户问题：{req.message}
-
-请用中文回答，并尽量标注信息来源（文件名或题号）。"""
-    else:
-        prompt = f"""你是一位学科助教。用户上传过知识库文档，但目前知识库中没有检索到与以下问题相关的内容。
-
-用户问题：{req.message}
-
-请如实告知用户知识库中没有匹配的内容，并建议用户尝试上传相关文档或换个问题。"""
-
     # ── LLM 回答 ──
     try:
-        reply = await chat_text(prompt, temperature=0.5, max_tokens=1024)
+        reply = await answer_from_documents(req.message, docs)
     except Exception as e:
         logger.exception("教师对话 LLM 调用失败")
         raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e!s}")
@@ -481,18 +474,25 @@ async def upload_document(
     token, claims = auth
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
+    if ext not in {"pdf", "txt", "md", "docx", "pptx"}:
+        raise HTTPException(status_code=400, detail="仅支持 PDF、TXT、MD、DOCX、PPTX 文件")
+    subject_name = subject_name.strip()
+    if not subject_name or len(subject_name) > 100:
+        raise HTTPException(status_code=400, detail="科目名称不能为空且不能超过100个字符")
     tmp_path = f"./upload_temp_{uuid.uuid4().hex}.{ext}"
-    content = await file.read()
     max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件大小不能超过 {settings.max_upload_mb}MB",
-        )
-    with open(tmp_path, "wb") as f:
-        f.write(content)
 
     try:
+        total_bytes = 0
+        with open(tmp_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件大小不能超过 {settings.max_upload_mb}MB",
+                    )
+                f.write(chunk)
         now = time.time()
         modified_at = last_modified / 1000.0 if last_modified else now
         result = DocumentLoader.load_and_chunk_detail(
@@ -506,19 +506,61 @@ async def upload_document(
         if not chunks:
             return ApiResponse(code=400, message="文档中未检测到有效内容", data=None)
 
-        full_texts = [c.content for c in chunks]
-        metadatas = [c.metadata for c in chunks]
+        upload_id = uuid.uuid4().hex
+        records: dict[str, tuple[str, str, dict]] = {}
+        dropped_empty = 0
+        student_texts = strip_answer_chunks(
+            [chunk.content.strip() for chunk in chunks],
+            [chunk.metadata.get("section_path", "") for chunk in chunks],
+        )
+        for chunk, student_text in zip(chunks, student_texts):
+            full_text = chunk.content.strip()
+            if not student_text:
+                dropped_empty += 1
+                # Preserve the complete teacher corpus and the paired student ID.
+                # The retriever excludes this non-content placeholder.
+                student_text = REDACTED_CHUNK_TEXT
+            normalized = " ".join(full_text.split())
+            digest = hashlib.sha256(
+                f"{subject_name}\0{normalized}".encode("utf-8")
+            ).hexdigest()[:32]
+            if digest not in records:
+                metadata = dict(chunk.metadata)
+                metadata.update({"content_hash": digest, "upload_id": upload_id})
+                records[digest] = (full_text, student_text, metadata)
 
-        # ── 教师库：完整文本向量化并入库 ──
+        if not records:
+            return ApiResponse(code=400, message="清洗后没有可安全入库的内容", data=None)
+
+        duplicate_count = len(chunks) - len(records)
+        if dropped_empty:
+            result.warnings.append(f"学生侧已屏蔽 {dropped_empty} 个答案或解析块，教师原文已保留")
+        if duplicate_count:
+            result.warnings.append(f"已合并 {duplicate_count} 个重复知识块")
+
+        digests = list(records)
+        full_texts = [records[digest][0] for digest in digests]
+        student_texts = [records[digest][1] for digest in digests]
+        metadatas = [records[digest][2] for digest in digests]
+        teacher_ids = [f"teacher_{digest}" for digest in digests]
+        student_ids = [f"student_{digest}" for digest in digests]
+
+        # EmbeddingService 内部分批；学生文本单独向量化，避免答案影响学生侧向量。
         full_embeddings = await embedding_service.embed(full_texts)
-        teacher_ids = [f"teacher_{file.filename}_{i}" for i in range(len(chunks))]
-        vector_store.add_to_teacher(teacher_ids, full_texts, full_embeddings, metadatas)
-
-        # ── 学生库：剥离答案后单独向量化，确保向量与文本一致 ──
-        student_texts = [_strip_answer(t) for t in full_texts]
         student_embeddings = await embedding_service.embed(student_texts)
-        student_ids = [f"student_{file.filename}_{i}" for i in range(len(chunks))]
-        vector_store.add_to_student(student_ids, student_texts, student_embeddings, metadatas)
+        write_stats = vector_store.add_consistent_pairs(
+            teacher_ids=teacher_ids,
+            student_ids=student_ids,
+            teacher_documents=full_texts,
+            student_documents=student_texts,
+            teacher_embeddings=full_embeddings,
+            student_embeddings=student_embeddings,
+            metadatas=metadatas,
+        )
+        if write_stats["deduplicated"]:
+            result.warnings.append(
+                f"向量库中已有 {write_stats['deduplicated']} 个相同知识块，未重复写入"
+            )
 
         return ApiResponse(
             code=200,
@@ -526,14 +568,19 @@ async def upload_document(
             data=DocumentUploadData(
                 file_name=file.filename,
                 subject_name=subject_name,
-                chunk_count=len(chunks),
+                chunk_count=len(records),
                 format=result.format,
                 structure_type=result.structure_type,
                 chunking_strategy=result.chunking_strategy,
                 warnings=result.warnings,
-                message=f"已将 {len(chunks)} 个知识块分别写入教师库和学生库",
+                message=(
+                    f"双库一致性写入完成：新增/修复 {write_stats['inserted']} 个，"
+                    f"复用 {write_stats['deduplicated']} 个"
+                ),
             ),
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning("文档格式或内容处理失败: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
@@ -546,14 +593,14 @@ async def upload_document(
 
 
 @router.delete("/knowledge", response_model=ApiResponse)
-async def clear_knowledge_base(auth=Depends(require_teacher_or_admin)):
+async def clear_knowledge_base(auth=Depends(require_admin)):
     """
     清空教师/学生知识库（ChromaDB 两个 collection 全部删除并重建）。
     用于重新上传文档前清除旧数据。
     """
     try:
-        before_t = len(vector_store.get_all_documents("teacher"))
-        before_s = len(vector_store.get_all_documents("student"))
+        before_t = vector_store.count_documents("teacher")
+        before_s = vector_store.count_documents("student")
         vector_store.clear_teacher()
         vector_store.clear_student()
         logger.info("知识库已清空（教师库 %d 条，学生库 %d 条）", before_t, before_s)
@@ -568,12 +615,8 @@ async def clear_knowledge_base(auth=Depends(require_teacher_or_admin)):
 
 
 def _strip_answer(text: str) -> str:
-    """从题目文本中剥离答案信息，用于学生库"""
-    import re
-    text = re.sub(r'答案[：:]\s*[^\n]+', '', text)
-    text = re.sub(r'正确答案[：:]\s*[^\n]+', '', text)
-    text = re.sub(r'Answer[：:]\s*[^\n]+', '', text, flags=re.IGNORECASE)
-    return text.strip()
+    """兼容旧调用；实际清洗逻辑集中在 rag.sanitizer。"""
+    return strip_answer_content(text)
 
 
 def _format_source_label(metadata: dict) -> str:

@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -20,6 +22,15 @@ import java.util.UUID;
 public class FileUploadService {
     private static final String DEFAULT_SUB_DIR = "default";
     private static final String ACCESS_PREFIX = "/files/";
+    private static final long MAX_FILE_SIZE = 2L * 1024 * 1024;
+    private static final Map<String, String> ALLOWED_IMAGE_TYPES = Map.of(
+            ".jpg", "image/jpeg",
+            ".jpeg", "image/jpeg",
+            ".png", "image/png",
+            ".gif", "image/gif",
+            ".webp", "image/webp",
+            ".bmp", "image/bmp"
+    );
 
     @Value("${file.upload-dir}")
     private String uploadDir;
@@ -36,9 +47,17 @@ public class FileUploadService {
             log.warn("上传失败，文件为空");
             throw new IllegalArgumentException("文件不能为空");
         }
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw new IllegalArgumentException("图片大小不能超过2MB");
+        }
 
         String normalizedSubDir = normalizeSubDir(subDir);
-        String uniqueFileName = UUID.randomUUID() + getFileExtension(file.getOriginalFilename());
+        String extension = getFileExtension(file.getOriginalFilename()).toLowerCase(Locale.ROOT);
+        String expectedContentType = ALLOWED_IMAGE_TYPES.get(extension);
+        if (expectedContentType == null || !expectedContentType.equalsIgnoreCase(file.getContentType())) {
+            throw new IllegalArgumentException("仅支持 JPG、PNG、GIF、WEBP、BMP 图片");
+        }
+        String uniqueFileName = UUID.randomUUID() + extension;
         Path uploadPath = resolveUploadRoot().resolve(normalizedSubDir).normalize();
 
         Files.createDirectories(uploadPath);

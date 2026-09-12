@@ -20,7 +20,9 @@ async def lifespan(app: FastAPI):
     logger.info("ai-tutor 启动 (port %d, debug=%s)", settings.app_port, settings.debug)
     yield
     from utils.exam_bridge import exam_bridge
+    from utils.observability import shutdown_langfuse
     await exam_bridge.close()
+    shutdown_langfuse()
     logger.info("ai-tutor 已关闭")
 
 
@@ -34,7 +36,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,4 +56,4 @@ app.include_router(student.router, prefix="/ai/student", tags=["学生智能体"
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=settings.app_port, reload=settings.debug)
+    uvicorn.run(app, host="0.0.0.0", port=settings.app_port, reload=False)

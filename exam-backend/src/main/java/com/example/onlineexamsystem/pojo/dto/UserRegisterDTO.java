@@ -29,8 +29,8 @@ public class UserRegisterDTO {
     private String username;
     @NotNull(message = "请选择用户角色")
     @Min(value = 1, message = "用户角色不正确")
-    @Max(value = 2, message = "用户角色不正确")
-    private Integer role; // 角色(1.学生，2.教师)
+    @Max(value = 1, message = "公开注册仅支持学生账号")
+    private Integer role; // 公开注册仅允许学生；教师和管理员由管理员创建
     @NotBlank(message = "邮箱不能为空")
     @Email(message = "邮箱格式不正确")
     @Size(max = 254, message = "邮箱长度不能超过254")

@@ -18,7 +18,7 @@ public class StartupLogger implements ApplicationRunner {
 
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void run(ApplicationArguments args) {
         log.info("系统启动完成");
         log.info("服务端口: 8077");
         log.info("Swagger 文档: http://localhost:8077/swagger-ui.html");

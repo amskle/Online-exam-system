@@ -280,13 +280,12 @@ onUnmounted(() => {
           <!-- 注册面板 -->
           <div v-show="!isLogin" class="panel">
             <h2 class="auth-title">创建账号</h2>
-            <p class="auth-hint">选择身份并完善信息以开始使用</p>
+            <p class="auth-hint">完善信息以创建学生账号</p>
 
             <div class="field">
               <label>身份</label>
               <div class="field-role">
                 <div class="role-opt" :class="{ active: registerRole === 1 }" @click="pickRole(1)">学生</div>
-                <div class="role-opt" :class="{ active: registerRole === 2 }" @click="pickRole(2)">教师</div>
               </div>
             </div>
 

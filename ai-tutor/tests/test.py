@@ -1,13 +1,14 @@
-import json, time, urllib.request, statistics
+import json, os, time, urllib.request, statistics
 from concurrent.futures import ThreadPoolExecutor
 
 
 
 BASE = "http://localhost:8077"
-TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjozLCJsb2dpblZlciI6IjI4MmI4ZjZjLWQzZjQtNGUxZC04OTRkLThiODNkN2RkMTNmZSIsInN1YiI6IjEiLCJpYXQiOjE3ODU2ODM2NjksImV4cCI6MTc4NjI4ODQ2OX0.xQre9BEAAWIXFv6VG-PK1MNBIA69zQE9hkiKELw_vtI"
+ACCOUNT = os.getenv("LOAD_TEST_ACCOUNT", "")
+PASSWORD = os.getenv("LOAD_TEST_PASSWORD", "")
 
 def post(_):
-    data = json.dumps({"account": "paul", "password": "327510"}).encode()
+    data = json.dumps({"account": ACCOUNT, "password": PASSWORD}).encode()
     req = urllib.request.Request(
         BASE + "/user/login", data=data,
         headers={"Content-Type": "application/json"},
@@ -22,18 +23,20 @@ def post(_):
 
 
 
-CONCURRENCY = 50
-TOTAL = 500
-start = time.perf_counter()
-with ThreadPoolExecutor(max_workers=CONCURRENCY) as ex:
-    results = list(ex.map(post, range(TOTAL)))
-wall = time.perf_counter() - start
+if __name__ == "__main__":
+    if not ACCOUNT or not PASSWORD:
+        raise SystemExit("请先设置 LOAD_TEST_ACCOUNT 和 LOAD_TEST_PASSWORD")
+    concurrency = 50
+    total_requests = 500
+    start = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=concurrency) as ex:
+        results = list(ex.map(post, range(total_requests)))
+    wall = time.perf_counter() - start
 
-ok = [t for t, s in results if s]
-total = sum(t for t, _ in results)
-errors = TOTAL - len(ok)
-print(f"总数={TOTAL} 成功={len(ok)} 失败={errors}")
-print(f"QPS={TOTAL/wall:.1f}")
-print(f"平均={statistics.mean(ok)*1000:.1f}ms P95={ok[int(len(ok)*0.95)-1]*1000:.1f}ms")
-ok.sort()
-print(f"P50={ok[len(ok)//2]*1000:.1f}ms P95={ok[int(len(ok)*0.95)-1]*1000:.1f}ms")
+    ok = sorted(t for t, success in results if success)
+    errors = total_requests - len(ok)
+    print(f"总数={total_requests} 成功={len(ok)} 失败={errors}")
+    print(f"QPS={total_requests / wall:.1f}")
+    if ok:
+        print(f"平均={statistics.mean(ok) * 1000:.1f}ms")
+        print(f"P50={ok[len(ok) // 2] * 1000:.1f}ms P95={ok[int(len(ok) * 0.95) - 1] * 1000:.1f}ms")

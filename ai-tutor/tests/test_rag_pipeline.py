@@ -206,6 +206,27 @@ def test_vector_store_search_does_not_require_unbound_self():
     assert results[0]["metadata"]["source_file"] == "3. Thymeleaf.pdf"
 
 
+def test_vector_store_batches_multiple_query_embeddings():
+    calls = []
+
+    class FakeCollection:
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "ids": [["a"], ["b"]],
+                "documents": [["A"], ["B"]],
+                "metadatas": [[{}], [{}]],
+                "distances": [[0.1], [0.2]],
+            }
+
+    store = object.__new__(VectorStore)
+    results = store._search_many(FakeCollection(), [[1.0], [2.0]], top_k=2)
+
+    assert len(calls) == 1
+    assert calls[0]["query_embeddings"] == [[1.0], [2.0]]
+    assert [[doc["id"] for doc in rows] for rows in results] == [["a"], ["b"]]
+
+
 def test_document_loader_keeps_original_source_name(tmp_path):
     md = tmp_path / "temp_upload.md"
     md.write_text("# Thymeleaf\n\nThymeleaf 是 Java 模板引擎。", encoding="utf-8")

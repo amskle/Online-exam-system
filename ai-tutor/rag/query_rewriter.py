@@ -1,14 +1,21 @@
 """RAG 多路 Query 改写与会话级查询记忆。"""
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections import defaultdict, deque
+import re
+import time
+from collections import OrderedDict, defaultdict, deque
 
 from agents.common import chat_json
 from config.settings import get_settings
 
 settings = get_settings()
 logger = logging.getLogger("ai-tutor.rag.query_rewriter")
+
+_rewrite_cache: OrderedDict[tuple[str, tuple[str, ...], int], list[str]] = OrderedDict()
+_REFERENCE_PATTERN = re.compile(r"(?:它|这个|那个|这些|那些|这道题|该题|该内容|上述|上面|前者|后者|其)")
+_COMPOUND_PATTERN = re.compile(r"(?:分别|对比|比较|区别|异同|以及|并且|同时|还是|或者|和|与|或)")
 
 
 _REWRITE_PROMPT = """你是 RAG 查询改写助手。根据最近的用户问题历史，把当前问题改写成多个适合向量检索的独立查询。
@@ -43,6 +50,27 @@ def _dedupe_queries(queries: list[str]) -> list[str]:
     return result
 
 
+def is_complex_query(query: str, history: list[str] | None = None) -> bool:
+    """用低成本规则识别需要指代消解或拆分的复杂查询。"""
+    compact = " ".join(query.strip().split())
+    if not compact:
+        return False
+    if len(compact) >= settings.query_complexity_length_threshold:
+        return True
+    if compact.count("？") + compact.count("?") > 1:
+        return True
+    if _REFERENCE_PATTERN.search(compact):
+        return True
+    if _COMPOUND_PATTERN.search(compact):
+        return True
+    return False
+
+
+def clear_rewrite_cache():
+    """清理进程内改写缓存，供测试和运维热刷新使用。"""
+    _rewrite_cache.clear()
+
+
 async def generate_query_variants(
     query: str,
     history: list[str] | None = None,
@@ -55,22 +83,53 @@ async def generate_query_variants(
         return variants
 
     history = [h.strip() for h in (history or []) if h and h.strip()]
+    limit = max_variants or settings.query_rewrite_max_variants
+    cache_key = (
+        query,
+        tuple(history[-settings.query_rewrite_history_limit:]),
+        limit,
+    )
+    cached = _rewrite_cache.get(cache_key)
+    if cached is not None:
+        _rewrite_cache.move_to_end(cache_key)
+        logger.info("rag_stage=rewrite elapsed_ms=0 cache_hit=1 variants=%d", len(cached))
+        return list(cached)
+
     history_text = "\n".join(
         f"{i + 1}. {item}" for i, item in enumerate(history[-settings.query_rewrite_history_limit:])
     ) or "（暂无历史问题）"
 
     prompt = _REWRITE_PROMPT.format(history=history_text, query=query)
+    started = time.perf_counter()
     try:
-        raw = await chat_json(prompt, temperature=0.2, max_tokens=1024)
+        raw = await asyncio.wait_for(
+            chat_json(prompt, temperature=0.2, max_tokens=1024),
+            timeout=settings.query_rewrite_timeout_seconds,
+        )
         if not isinstance(raw, list):
             raise ValueError(f"改写结果不是数组: {raw!r}")
         rewritten = [str(item).strip() for item in raw if str(item).strip()]
         variants.extend(rewritten)
+    except asyncio.TimeoutError:
+        logger.info(
+            "Query 改写超过 %.0fms，仅使用原始问题",
+            settings.query_rewrite_timeout_seconds * 1000,
+        )
     except Exception as e:
         logger.warning("Query 改写失败，仅使用原始问题: %s", e)
 
-    limit = max_variants or settings.query_rewrite_max_variants
-    return _dedupe_queries(variants)[:limit]
+    result = _dedupe_queries(variants)[:limit]
+    if len(result) > 1:
+        _rewrite_cache[cache_key] = list(result)
+        _rewrite_cache.move_to_end(cache_key)
+        while len(_rewrite_cache) > settings.query_rewrite_cache_size:
+            _rewrite_cache.popitem(last=False)
+    logger.info(
+        "rag_stage=rewrite elapsed_ms=%.2f cache_hit=0 variants=%d",
+        (time.perf_counter() - started) * 1000,
+        len(result),
+    )
+    return result
 
 
 class QueryRewriteMemory:

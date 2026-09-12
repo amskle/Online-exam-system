@@ -17,7 +17,7 @@ _STOPWORDS = {
 }
 
 
-def extract_keyword_terms(query: str) -> list[str]:
+def extract_keyword_terms(query: str, max_terms: int = 8) -> list[str]:
     """提取用于 Chroma $contains 候选查询的词。"""
     raw_terms: list[str] = []
     if jieba is not None:
@@ -34,7 +34,7 @@ def extract_keyword_terms(query: str) -> list[str]:
             continue
         if term.lower() not in {t.lower() for t in terms}:
             terms.append(term)
-    return terms[:8]
+    return terms[:max_terms]
 
 
 def keyword_score(query: str, document: str) -> float:
